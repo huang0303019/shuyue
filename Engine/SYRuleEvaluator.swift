@@ -329,7 +329,6 @@ private static func stringValue(_ value: SYRuleValue?) -> String? {
         case .none: return nil
         }
     }
-    }
 
     /// 规则最终输出：字符串。
     static func finalize(_ value: SYRuleValue?) -> String? {
