@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# XcodeGen 生成物（工程以 project.yml 为准）
+ShuYue.xcodeproj/
+*.xcodeproj/project.xcworkspace/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+
+# 本地/编辑器
+.env
+*.log
+.idea/
+.vscode/

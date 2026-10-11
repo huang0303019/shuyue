@@ -1,0 +1,12 @@
+name: Build ShuYue
+
+# 占位工作流：随工程骨架落地后替换为真实的 unsigned IPA 构建
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder
+        run: echo "ShuYue build workflow placeholder — real build lands with the project scaffold."
