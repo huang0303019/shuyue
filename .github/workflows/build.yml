@@ -44,6 +44,7 @@ jobs:
       - name: Run engine unit tests
         run: |
           set -o pipefail
+          mkdir -p build
           xcodegen generate --spec project.yml
           DEVICE="$(xcrun simctl list devices available | grep -o 'iPhone [0-9]*' | head -1 || echo 'iPhone 16')"
           echo "Using simulator: $DEVICE"
