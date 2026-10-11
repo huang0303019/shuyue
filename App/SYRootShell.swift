@@ -1,31 +1,43 @@
 import SwiftUI
 
-/// 应用外壳：顶部应用栏 + 左侧抽屉 + 内容区。
+/// 应用外壳：顶部应用栏 + 左侧抽屉 + 内容区，承载整条导航栈。
 struct SYRootShell: View {
     @StateObject private var state = SYAppState()
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            SYPalette.paper.ignoresSafeArea()
+        NavigationStack(path: $state.path) {
+            ZStack(alignment: .leading) {
+                SYPalette.paper.ignoresSafeArea()
 
-            content
-                .disabled(state.isDrawerOpen)
+                content
+                    .disabled(state.isDrawerOpen)
 
-            if state.isDrawerOpen {
-                Color.black.opacity(0.26)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture { closeDrawer() }
-                    .transition(.opacity)
-                    .zIndex(1)
+                if state.isDrawerOpen {
+                    Color.black.opacity(0.26)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture { closeDrawer() }
+                        .transition(.opacity)
+                        .zIndex(1)
 
-                SYDrawer(state: state)
-                    .transition(.move(edge: .leading))
-                    .zIndex(2)
+                    SYDrawer(state: state)
+                        .transition(.move(edge: .leading))
+                        .zIndex(2)
+                }
             }
+            .animation(.easeOut(duration: 0.22), value: state.isDrawerOpen)
+            .navigationDestination(for: SYRoute.self) { route in
+                switch route {
+                case .bookDetail(let book):
+                    BookDetailView(book: book)
+                case .reader(let book, let index):
+                    ReaderView(book: book, startIndex: index)
+                }
+            }
+            .toolbar(.hidden, for: .navigationBar)
         }
-        .animation(.easeOut(duration: 0.22), value: state.isDrawerOpen)
         .tint(SYPalette.accent)
+        .environmentObject(state)
     }
 
     @ViewBuilder

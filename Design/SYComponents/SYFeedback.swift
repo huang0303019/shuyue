@@ -64,15 +64,16 @@ struct SYProgressRing: View {
 // MARK: - 页面骨架
 
 /// 统一页面骨架：顶部应用栏 + 可滚动内容区。所有功能页共用，避免底部标签栏。
-struct SYScreen<Content: View>: View {
+struct SYScreen<Trailing: View, Content: View>: View {
     let title: String
     var subtitle: String? = nil
     var onMenu: () -> Void
+    @ViewBuilder var trailing: () -> Trailing
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(spacing: 0) {
-            SYTopBar(title: title, subtitle: subtitle, onMenu: onMenu)
+            SYTopBar(title: title, subtitle: subtitle, onMenu: onMenu, trailing: trailing)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: SYMetric.gapL) {
@@ -84,5 +85,22 @@ struct SYScreen<Content: View>: View {
             }
         }
         .background(SYPalette.paper.ignoresSafeArea())
+    }
+}
+
+extension SYScreen where Trailing == EmptyView {
+    init(
+        title: String,
+        subtitle: String? = nil,
+        onMenu: @escaping () -> Void,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            onMenu: onMenu,
+            trailing: { EmptyView() },
+            content: content
+        )
     }
 }

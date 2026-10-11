@@ -3,7 +3,7 @@ import Foundation
 // MARK: - 书籍与章节模型
 
 /// 书悦全局书籍模型：由任意书源解析出的统一结果。
-struct SYBook: Identifiable, Equatable, Sendable {
+struct SYBook: Identifiable, Codable, Hashable, Sendable {
     /// 稳定 ID：书源 URL + 书籍页 URL。
     var id: String { "\(sourceUrl)|\(bookUrl)" }
 
@@ -51,7 +51,7 @@ struct SYBook: Identifiable, Equatable, Sendable {
 }
 
 /// 章节模型。
-struct SYChapter: Identifiable, Equatable, Sendable {
+struct SYChapter: Identifiable, Codable, Hashable, Sendable {
     var id: String { "\(sourceUrl)|\(url)" }
 
     var title: String
