@@ -58,7 +58,6 @@ enum SYXPath {
         let s = expression.trimmingCharacters(in: .whitespacesAndNewlines)
         var steps: [Step] = []
         var i = s.startIndex
-        var first = true
         while i < s.endIndex {
             var all = false
             if s[i] == "/" {
@@ -74,8 +73,7 @@ enum SYXPath {
                 i = s.index(after: i)
             }
             if seg.isEmpty { continue }
-            steps.append(parseSegment(seg, allDescendants: all && !first))
-            first = false
+            steps.append(parseSegment(seg, allDescendants: all))
         }
         return steps
     }

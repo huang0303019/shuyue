@@ -22,7 +22,7 @@ struct SYBookSource: Codable, Identifiable, Equatable {
     var customOrder: Int = 0
     var customButton: Bool = false
     var weight: Int = 0
-    var concurrentRate: Int = 0
+    var concurrentRate: String?
     var respondTime: Int = 15_000
 
     // ---- 网络 ----
@@ -60,6 +60,76 @@ struct SYBookSource: Codable, Identifiable, Equatable {
         case jsLib, lastUpdateTime, bookUrlPattern, bookUrlRegex, checkKeyUrl
     }
 
+    /// 容错解码：Legado 书源在字段缺失、以及数字/字符串混用（如 concurrentRate）上差异很大，
+    /// 这里统一用 decodeIfPresent + 类型兜底，避免因单个字段导致整份书源导入失败。
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+
+        func str(_ key: CodingKeys) -> String? {
+            if let v = try? c.decodeIfPresent(String.self, forKey: key) { return v }
+            if let v = try? c.decodeIfPresent(Int.self, forKey: key) { return String(v) }
+            if let v = try? c.decodeIfPresent(Double.self, forKey: key) { return String(v) }
+            if let v = try? c.decodeIfPresent(Bool.self, forKey: key) { return String(v) }
+            return nil
+        }
+        func int(_ key: CodingKeys, _ def: Int) -> Int {
+            if let v = try? c.decodeIfPresent(Int.self, forKey: key) { return v }
+            if let v = try? c.decodeIfPresent(String.self, forKey: key), let i = Int(v) { return i }
+            if let v = try? c.decodeIfPresent(Double.self, forKey: key) { return Int(v) }
+            return def
+        }
+        func bool(_ key: CodingKeys, _ def: Bool) -> Bool {
+            if let v = try? c.decodeIfPresent(Bool.self, forKey: key) { return v }
+            if let v = try? c.decodeIfPresent(Int.self, forKey: key) { return v != 0 }
+            if let v = try? c.decodeIfPresent(String.self, forKey: key) {
+                let t = v.trimmingCharacters(in: .whitespaces).lowercased()
+                if t == "true" || t == "1" { return true }
+                if t == "false" || t == "0" || t.isEmpty { return false }
+            }
+            return def
+        }
+        func rules<T: Decodable>(_ key: CodingKeys, _ type: T.Type) -> T? {
+            try? c.decodeIfPresent(T.self, forKey: key)
+        }
+
+        bookSourceName = str(.bookSourceName) ?? ""
+        bookSourceUrl = str(.bookSourceUrl) ?? ""
+        bookSourceGroup = str(.bookSourceGroup)
+        bookSourceType = int(.bookSourceType, 0)
+        bookSourceComment = str(.bookSourceComment)
+        enabled = bool(.enabled, true)
+        enabledExplore = bool(.enabledExplore, false)
+        enabledSearch = bool(.enabledSearch, true)
+        enabledCookieJar = bool(.enabledCookieJar, false)
+        eventListener = bool(.eventListener, false)
+        customOrder = int(.customOrder, 0)
+        customButton = bool(.customButton, false)
+        weight = int(.weight, 0)
+        concurrentRate = str(.concurrentRate)
+        respondTime = int(.respondTime, 15_000)
+        header = str(.header)
+        loginUrl = str(.loginUrl)
+        loginUi = str(.loginUi)
+        searchUrl = str(.searchUrl)
+        exploreUrl = str(.exploreUrl)
+        ruleSearch = rules(.ruleSearch, SYRuleSearch.self) ?? SYRuleSearch()
+        ruleExplore = rules(.ruleExplore, SYRuleExplore.self) ?? SYRuleExplore()
+        ruleBookInfo = rules(.ruleBookInfo, SYRuleBookInfo.self) ?? SYRuleBookInfo()
+        ruleToc = rules(.ruleToc, SYRuleToc.self) ?? SYRuleToc()
+        ruleContent = rules(.ruleContent, SYRuleContent.self) ?? SYRuleContent()
+        jsLib = str(.jsLib)
+        if let v = try? c.decodeIfPresent(Int64.self, forKey: .lastUpdateTime) {
+            lastUpdateTime = v
+        } else if let s = str(.lastUpdateTime), let v = Int64(s) {
+            lastUpdateTime = v
+        } else {
+            lastUpdateTime = nil
+        }
+        bookUrlPattern = str(.bookUrlPattern)
+        bookUrlRegex = str(.bookUrlRegex)
+        checkKeyUrl = str(.checkKeyUrl)
+    }
+
     init(
         bookSourceName: String,
         bookSourceUrl: String,
@@ -74,7 +144,7 @@ struct SYBookSource: Codable, Identifiable, Equatable {
         customOrder: Int = 0,
         customButton: Bool = false,
         weight: Int = 0,
-        concurrentRate: Int = 0,
+        concurrentRate: String? = nil,
         respondTime: Int = 15_000,
         header: String? = nil,
         loginUrl: String? = nil,

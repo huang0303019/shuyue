@@ -78,15 +78,17 @@ enum SYRuleEvaluator {
 
     // MARK: - 链式执行
 
-    /// 逐级执行 `@` 分隔的子规则（`@@` 为字面 @）。
-    private static func chain(_ rule: String, context: SYRuleContext, current: SYRuleValue?) -> SYRuleValue? {
+    /// 拆分为子规则：`@` 为分隔符，`@@` 为字面 @；方括号（XPath 谓词）深度 > 0 或引号内的 `@` 不视为分隔符。
+    private static func splitRule(_ rule: String) -> [String] {
         var parts: [String] = []
         var buf = ""
+        var depth = 0
+        var quote: Character?
         var i = rule.startIndex
         while i < rule.endIndex {
             let c = rule[i]
             let next = rule.index(after: i)
-            if c == "@" {
+            if c == "@", depth == 0, quote == nil {
                 if next < rule.endIndex, rule[next] == "@" {
                     buf.append("@")
                     i = rule.index(after: next)
@@ -96,11 +98,25 @@ enum SYRuleEvaluator {
                 buf = ""
             } else {
                 buf.append(c)
+                if quote != nil {
+                    if c == quote { quote = nil }
+                } else if c == "'" || c == "\"" {
+                    quote = c
+                } else if c == "[" {
+                    depth += 1
+                } else if c == "]", depth > 0 {
+                    depth -= 1
+                }
             }
             i = next
         }
         parts.append(buf)
+        return parts
+    }
 
+    /// 逐级执行 `@` 分隔的子规则。
+    private static func chain(_ rule: String, context: SYRuleContext, current: SYRuleValue?) -> SYRuleValue? {
+        let parts = splitRule(rule)
         var currentValue = current
         for part in parts {
             currentValue = apply(part, context: context, current: currentValue)
