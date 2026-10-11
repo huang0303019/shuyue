@@ -271,17 +271,15 @@ fileprivate final class Scanner {
             // 简单处理十进制数字实体
             let pattern = #"&#(\d+);"#
             if let regex = try? NSRegularExpression(pattern: pattern) {
-                let range = NSRange(out.startIndex..<out.endIndex, in: out)
-                let nsOut = NSMutableString(string: out)
-                regex.replaceMatches(in: nsOut, options: [], range: range) { match, _, _ in
-                    if let r = Range(match.range(at: 1), in: out),
-                       let code = Int(out[r]),
-                       let scalar = UnicodeScalar(code) {
-                        return String(Character(scalar))
-                    }
-                    return (out as NSString).substring(with: match.range)
+                let full = NSRange(out.startIndex..<out.endIndex, in: out)
+                let matches = regex.matches(in: out, options: [], range: full)
+                for m in matches.reversed() {
+                    guard let r = Range(m.range, in: out),
+                          let gr = Range(m.range(at: 1), in: out),
+                          let code = Int(out[gr]),
+                          let scalar = UnicodeScalar(code) else { continue }
+                    out.replaceSubrange(r, with: String(Character(scalar)))
                 }
-                out = nsOut as String
             }
         }
         return out

@@ -321,13 +321,14 @@ enum SYRuleEvaluator {
         return first
     }
 
-    private static func stringValue(_ value: SYRuleValue?) -> String? {
-        guard let value else { return nil }
+private static func stringValue(_ value: SYRuleValue?) -> String? {
         switch value {
         case .string(let s): return s
         case .json(let any): return SYJSONPath.displayString(any)
         case .nodes(let nodes): return nodes.first?.fullText
+        case .none: return nil
         }
+    }
     }
 
     /// 规则最终输出：字符串。
