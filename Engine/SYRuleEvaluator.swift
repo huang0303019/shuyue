@@ -71,6 +71,8 @@ enum SYRuleEvaluator {
             return []
         case .string:
             return []
+        case .none:
+            return []
         }
     }
 
@@ -246,7 +248,7 @@ enum SYRuleEvaluator {
     private static func applyXPath(_ expr: String, context: SYRuleContext, current: SYRuleValue?) -> SYRuleValue? {
         let root = htmlRoot(from: current) ?? context.htmlRoot
         guard let root else { return .nodes([]) }
-        if expr.hasSuffix("/text()") || expr.lastRange(of: "/@") != nil {
+        if expr.hasSuffix("/text()") || expr.range(of: "/@", options: .backwards) != nil {
             if let s = SYXPath.evaluateString(expr, root: root) {
                 return .string(s)
             }

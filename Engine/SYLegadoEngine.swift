@@ -274,7 +274,7 @@ actor SYLegadoEngine {
         }
         // Legado 语法：`url,{"method":"POST","headers":{...},"body":"{{key}}"}` 请求体配置
         var body: String?
-        if let commaRange = t.lastRange(of: ",{") {
+        if let commaRange = t.range(of: ",{", options: .backwards) {
             let candidate = String(t[t.index(after: commaRange.lowerBound)...])
             if let data = candidate.data(using: .utf8),
                let cfg = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {

@@ -272,14 +272,16 @@ fileprivate final class Scanner {
             let pattern = #"&#(\d+);"#
             if let regex = try? NSRegularExpression(pattern: pattern) {
                 let range = NSRange(out.startIndex..<out.endIndex, in: out)
-                out = regex.stringByReplacingMatches(in: out, options: [], range: range) { match in
+                let nsOut = NSMutableString(string: out)
+                regex.replaceMatches(in: nsOut, options: [], range: range) { match, _, _ in
                     if let r = Range(match.range(at: 1), in: out),
                        let code = Int(out[r]),
                        let scalar = UnicodeScalar(code) {
                         return String(Character(scalar))
                     }
-                    return ""
+                    return (out as NSString).substring(with: match.range)
                 }
+                out = nsOut as String
             }
         }
         return out

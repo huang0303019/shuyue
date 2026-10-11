@@ -31,7 +31,7 @@ enum SYXPath {
             let path = String(trimmed.dropLast("/text()".count))
             return evaluate(path, root: root).first?.fullText
         }
-        if let range = trimmed.lastRange(of: "/@") {
+        if let range = trimmed.range(of: "/@", options: .backwards) {
             let path = String(trimmed[..<range.lowerBound])
             let attr = String(trimmed[range.upperBound...])
             return evaluate(path, root: root).first?.attributes[attr]
