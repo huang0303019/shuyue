@@ -1,12 +1,73 @@
 name: Build ShuYue
 
-# 占位工作流：随工程骨架落地后替换为真实的 unsigned IPA 构建
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, e.g. 0.1.0"
+        required: false
+        default: "0.1.0"
+  push:
+    tags:
+      - "v*"
 
 jobs:
-  placeholder:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: macos-15
+    timeout-minutes: 120
+    permissions:
+      contents: write
+
     steps:
-      - name: Placeholder
-        run: echo "ShuYue build workflow placeholder — real build lands with the project scaffold."
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: |
+          ls /Applications | grep -i xcode || true
+          XCODE_APP="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$XCODE_APP" ]; then
+            XCODE_APP="$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -1)"
+          fi
+          if [ -n "$XCODE_APP" ]; then
+            sudo xcode-select -s "$XCODE_APP"
+          fi
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen || brew upgrade xcodegen
+          xcodegen --version
+
+      - name: Build unsigned IPA
+        run: |
+          chmod +x scripts/build_ipa.sh
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          scripts/build_ipa.sh "$VERSION"
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          retention-days: 7
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShuYue-unsigned-ipa
+          path: build/ShuYue-*.ipa
+          retention-days: 7
+
+      - name: Create Release and upload IPA
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/ShuYue-*.ipa
+          generate_release_notes: true
