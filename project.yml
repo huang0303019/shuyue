@@ -24,6 +24,7 @@ targets:
       - path: Design
       - path: Features
       - path: Resources
+      - path: Engine
     settings:
       base:
         PRODUCT_NAME: ShuYue
@@ -41,6 +42,21 @@ targets:
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         ENABLE_PREVIEWS: YES
 
+  EngineTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: EngineTests
+    dependencies:
+      - target: ShuYue
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.zhong228.shuyue.engine-tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/ShuYue.app/ShuYue
+        BUNDLE_LOADER: $(TEST_HOST)
+
 schemes:
   ShuYue:
     build:
@@ -50,5 +66,7 @@ schemes:
       config: Debug
     test:
       config: Debug
+      targets:
+        - EngineTests
     archive:
       config: Release

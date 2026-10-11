@@ -41,6 +41,22 @@ jobs:
           brew install xcodegen || brew upgrade xcodegen
           xcodegen --version
 
+      - name: Run engine unit tests
+        run: |
+          set -o pipefail
+          xcodegen generate --spec project.yml
+          DEVICE="$(xcrun simctl list devices available | grep -o 'iPhone [0-9]*' | head -1 || echo 'iPhone 16')"
+          echo "Using simulator: $DEVICE"
+          xcodebuild test \
+            -project ShuYue.xcodeproj \
+            -scheme ShuYue \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            -derivedDataPath build/DerivedDataTests \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build/test.log
+          echo "--- test summary ---"
+          grep -E "Test Suite '(SYEngineTests|All tests)'" build/test.log || true
+
       - name: Build unsigned IPA
         run: |
           chmod +x scripts/build_ipa.sh
