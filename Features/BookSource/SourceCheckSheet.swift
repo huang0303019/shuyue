@@ -31,7 +31,9 @@ struct SourceCheckSheet: View {
                 }
             }
             .onAppear { notifyIfFinished() }
-            .onChange(of: checker.isFinished) { _ in notifyIfFinished() }
+            .onChange(of: checker.isRunning) { isRunning in
+                if !isRunning { notifyIfFinished() }
+            }
         }
         .presentationDetents([.medium, .large])
         .onDisappear {
@@ -217,8 +219,8 @@ struct SourceCheckSheet: View {
     }
 
     private func notifyIfFinished() {
-        guard checker.isFinished,
-              let item = checker.item,
+        guard let item = checker.item,
+              item.isFinished,
               let health = item.health else { return }
         onFinished(SYSourceValidationSummary(health: health, responseMs: item.responseTime))
     }
