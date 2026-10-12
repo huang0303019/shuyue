@@ -856,12 +856,12 @@ private struct ImportSourceSheet: View {
         isImporting = true
         result = nil
         Task {
-            let parsed: Result<[SYBookSource], String>
+            let parsed: Result<[SYBookSource], Error>
             switch mode {
             case .text:
                 let sources = SYBookSourceStore.parse(text)
                 parsed = sources.isEmpty
-                    ? .failure("未解析到任何书源，请确认是标准 Legado 书源 JSON（对象或数组）。")
+                    ? .failure(SYImportMessage(message: "未解析到任何书源，请确认是标准 Legado 书源 JSON（对象或数组）。"))
                     : .success(sources)
             case .url:
                 parsed = await state.parseRemote(urlString: url)
@@ -870,8 +870,8 @@ private struct ImportSourceSheet: View {
             switch parsed {
             case .success(let sources):
                 pendingPlan = state.importPlan(from: sources)
-            case .failure(let message):
-                result = message
+            case .failure(let error):
+                result = error.localizedDescription
             }
         }
     }

@@ -298,21 +298,21 @@ final class SYAppState: ObservableObject {
     // MARK: 导入审查流程
 
     /// 网络订阅地址解析（不写库），供导入确认清单先行展示。
-    func parseRemote(urlString: String) async -> Result<[SYBookSource], String> {
+    func parseRemote(urlString: String) async -> Result<[SYBookSource], Error> {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), url.scheme != nil else {
-            return .failure("地址无效，请填写完整的 http(s) 链接。")
+            return .failure(SYImportMessage(message: "地址无效，请填写完整的 http(s) 链接。"))
         }
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             let text = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
             let parsed = SYBookSourceStore.parse(text)
             guard !parsed.isEmpty else {
-                return .failure("未解析到任何书源，请确认是标准 Legado 书源 JSON。")
+                return .failure(SYImportMessage(message: "未解析到任何书源，请确认是标准 Legado 书源 JSON。"))
             }
             return .success(parsed)
         } catch {
-            return .failure("网络导入失败：\(error.localizedDescription)")
+            return .failure(SYImportMessage(message: "网络导入失败：\(error.localizedDescription)"))
         }
     }
 

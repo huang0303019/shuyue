@@ -230,3 +230,11 @@ final class SYImportPlan: ObservableObject, Identifiable {
         }
     }
 }
+
+// MARK: - 导入解析错误
+
+/// 携带可直接展示中文信息的导入错误（`Result` 的 Failure 类型必须遵守 `Error`）。
+struct SYImportMessage: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
