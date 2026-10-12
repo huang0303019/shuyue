@@ -111,7 +111,7 @@ final class SYHealthCheckerTests: XCTestCase {
         let checker = SYHealthChecker(session: session)
         checker.start(source: source)
         var waited = 0
-        while !checker.isFinished {
+        while !(checker.item?.isFinished ?? false) {
             if waited > 200 {
                 XCTFail("校验在 5 秒内未完成，当前状态：\(checker.item?.stages.map { $0.status } ?? [])")
                 return await checker.item ?? SYCheckItem(source: source)
