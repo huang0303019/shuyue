@@ -92,7 +92,10 @@ final class SYHealthCheckerTests: XCTestCase {
     func testKeywordFromCheckKeyWord() async throws {
         var observedURL: String?
         MockURLProtocol.handler = { request in
-            observedURL = request.url?.absoluteString ?? ""
+            // 仅记录搜索请求（详情/目录/正文请求不覆盖）
+            if request.url?.absoluteString.contains("/search") == true, observedURL == nil {
+                observedURL = request.url?.absoluteString ?? ""
+            }
             return self.respond(for: request, search: Self.searchHTML, detailToc: Self.detailTocHTML, content: Self.contentHTML)
         }
         let source = makeHTMLSource()
