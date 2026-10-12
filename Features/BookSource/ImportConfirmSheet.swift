@@ -55,6 +55,7 @@ struct ImportConfirmSheet: View {
     }
 
     /// 分组与保留策略 —— 只影响「确认写入」这一步，不写入任何持久化选项。
+    @ViewBuilder
     private var optionsSection: some View {
         Section {
             HStack(spacing: SYMetric.gapM) {

@@ -335,12 +335,12 @@ final class SYAppState: ObservableObject {
         var added = 0
         var updated = 0
         var issues: [String] = []
-        for source in selected {
-            guard !source.bookSourceUrl.isEmpty else {
-                issues.append("跳过缺少 bookSourceUrl 的条目：\(source.bookSourceName)")
+        for incoming in selected {
+            guard !incoming.bookSourceUrl.isEmpty else {
+                issues.append("跳过缺少 bookSourceUrl 的条目：\(incoming.bookSourceName)")
                 continue
             }
-            let merged = options.merged(incoming: source, local: source(url: source.bookSourceUrl))
+            let merged = options.merged(incoming: incoming, local: source(url: incoming.bookSourceUrl))
             if let index = sources.firstIndex(where: { $0.bookSourceUrl == merged.bookSourceUrl }) {
                 sources[index] = merged
                 updated += 1
