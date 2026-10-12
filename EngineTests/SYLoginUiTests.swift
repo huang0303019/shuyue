@@ -205,7 +205,7 @@ final class SYLoginUiTests: XCTestCase {
         source.loginCheckJs = "JSON.parse(result).code == 200"
         mockTextResponse(#"{"code":200}"#, headers: ["Content-Type": "application/json"])
 
-        let result = try await makeEngine(source).login(formValues: [])
+        let result = try await makeEngine(source).login(formValues: [:])
         XCTAssertTrue(result.success)
         XCTAssertTrue(result.checked)
     }
@@ -216,7 +216,7 @@ final class SYLoginUiTests: XCTestCase {
         source.loginCheckJs = "JSON.parse(result).code == 200"
         mockTextResponse(#"{"code":403}"#, headers: ["Content-Type": "application/json"])
 
-        let result = try await makeEngine(source).login(formValues: [])
+        let result = try await makeEngine(source).login(formValues: [:])
         XCTAssertFalse(result.success)
         XCTAssertTrue(result.checked)
     }
@@ -227,7 +227,7 @@ final class SYLoginUiTests: XCTestCase {
         source.loginCheckJs = "'登录成功'"
         mockTextResponse("ok")
 
-        let result = try await makeEngine(source).login(formValues: [])
+        let result = try await makeEngine(source).login(formValues: [:])
         XCTAssertTrue(result.success, "非空文本返回值应视为登录成功")
         XCTAssertTrue(result.checked)
     }
@@ -238,7 +238,7 @@ final class SYLoginUiTests: XCTestCase {
         source.loginCheckJs = "''"
         mockTextResponse("")
 
-        let result = try await makeEngine(source).login(formValues: [])
+        let result = try await makeEngine(source).login(formValues: [:])
         XCTAssertFalse(result.success, "空字符串应判定登录失败")
         XCTAssertTrue(result.checked)
     }
@@ -248,7 +248,7 @@ final class SYLoginUiTests: XCTestCase {
         source.loginUrl = "https://example.com/login"
         mockTextResponse("any")
 
-        let result = try await makeEngine(source).login(formValues: [])
+        let result = try await makeEngine(source).login(formValues: [:])
         XCTAssertTrue(result.success)
         XCTAssertFalse(result.checked, "未配置 loginCheckJs 时不做校验")
     }
@@ -259,7 +259,7 @@ final class SYLoginUiTests: XCTestCase {
         source.loginCheckJs = "java.lang.System.currentTimeMillis() > 0"
         mockTextResponse("ok")
 
-        let result = try await makeEngine(source).login(formValues: [])
+        let result = try await makeEngine(source).login(formValues: [:])
         XCTAssertFalse(result.success)
         XCTAssertTrue(result.message.contains("java"), "依赖 java 桥的校验应给出中文提示，实际：\(result.message)")
     }
@@ -296,7 +296,7 @@ final class SYLoginUiTests: XCTestCase {
         var source = SYBookSource(bookSourceName: "jss源", bookSourceUrl: "https://example.com")
         source.loginUrl = "function login(){ java.connect('https://example.com'); }"
 
-        let result = try await makeEngine(source).login(formValues: [])
+        let result = try await makeEngine(source).login(formValues: [:])
         XCTAssertFalse(result.success)
         XCTAssertTrue(result.message.contains("java"), "JS 登录依赖 java 桥时应明确失败并提示，实际：\(result.message)")
     }
