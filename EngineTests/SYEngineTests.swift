@@ -154,6 +154,35 @@ final class SYEngineTests: XCTestCase {
         XCTAssertEqual(SYRuleEvaluator.string("//li[@data-id='2']/a/@href", context: SYRuleContext(htmlRoot: root)), "/book/2")
     }
 
+    func testHTMLRulesCompoundSelectors() throws {
+        let html = """
+        <html><body>
+        <ul id="list">
+          <li class="item"><a class="bk" href="/book/1">书一</a><span class="name">书一</span></li>
+          <li class="item"><a class="bk" href="/book/2">书二</a><span class="name">书二</span></li>
+        </ul>
+        </body></html>
+        """
+        let root = SYHTMLParser.parse(html)
+
+        // 复合选择器：元素+ID、元素+类、后代组合（健康检查默认写法）
+        let items = SYRuleEvaluator.list("css:ul#list li.item", context: SYRuleContext(htmlRoot: root))
+        XCTAssertEqual(items.count, 2, "css:ul#list li.item 应命中两条 li.item")
+
+        guard case .nodes(let firstNodes) = items[0], let node = firstNodes.first else {
+            return XCTFail("bookList 应为节点")
+        }
+        let itemContext = SYRuleContext(htmlRoot: node)
+
+        XCTAssertEqual(SYRuleEvaluator.string("css:.name@text", context: itemContext), "书一")
+        XCTAssertEqual(SYRuleEvaluator.string("css:a.bk@href", context: itemContext), "/book/1")
+        XCTAssertEqual(SYRuleEvaluator.string("css:ul#list li.item a.bk@text", context: SYRuleContext(htmlRoot: root)), "书一")
+
+        // 元素+ID 单独匹配（章节列表写法）
+        let toc = SYRuleEvaluator.list("css:ul#list li", context: SYRuleContext(htmlRoot: root))
+        XCTAssertEqual(toc.count, 2, "css:ul#list li 应命中两条 li")
+    }
+
     // MARK: - 离线搜索链路（真实番茄书源 + Mock 响应）
 
     func testSearchOfflineWithRealFanqieSource() async throws {

@@ -313,42 +313,68 @@ extension SYHTMLNode {
         return out
     }
 
+    /// 匹配 CSS 选择器简化子集；支持 tag / .class / #id / [attr] / [attr=value]
+    /// 及其任意组合（如 `ul#list`、`li.item`、`a.bk[href]`）。
     private func matches(_ node: SYHTMLNode, selector: String) -> Bool {
         var rest = selector.trimmingCharacters(in: .whitespaces)
         if rest.hasPrefix(":") { return false } // 伪类暂不支持
-        // class
-        if rest.hasPrefix(".") {
-            let cls = String(rest.dropFirst())
-            guard let v = node.attributes["class"] else { return false }
-            return v.split(separator: " ").contains(where: { $0 == cls })
-        }
-        // id
-        if rest.hasPrefix("#") {
-            let id = String(rest.dropFirst())
-            return node.attributes["id"] == id
-        }
-        // attr
-        if rest.hasPrefix("[") {
-            guard let end = rest.firstIndex(of: "]") else { return false }
-            let expr = String(rest[rest.index(after: rest.startIndex)..<end])
-            if expr.contains("=") {
-                let kv = expr.split(separator: "=", maxSplits: 1).map(String.init)
-                let attr = kv[0].trimmingCharacters(in: .whitespaces)
-                var val = kv[1].trimmingCharacters(in: .whitespaces)
-                if val.count >= 2, (val.first == "\"" || val.first == "'") {
-                    val.removeFirst(); val.removeLast()
-                }
-                if attr == "text" {
-                    return node.textContent.trimmingCharacters(in: .whitespacesAndNewlines).contains(val)
-                }
-                return node.attributes[attr] == val
+
+        // 可选 tag 前缀（`ul#list`、`li.item`、`a.bk`）
+        if let first = rest.first, first.isLetter || first == "*" {
+            var name = ""
+            while let ch = rest.first, ch.isLetter || ch.isNumber || ch == "-" || ch == "_" {
+                name.append(ch)
+                rest.removeFirst()
             }
-            let attr = expr.trimmingCharacters(in: .whitespaces)
-            return node.attributes[attr] != nil
+            if name != "*", node.tag != name.lowercased() { return false }
         }
-        // tag
-        if rest == "*" { return true }
-        return node.tag == rest.lowercased()
+
+        while !rest.isEmpty {
+            if rest.hasPrefix(".") {
+                rest.removeFirst()
+                let cls = consumeSelectorIdentifier(&rest)
+                guard !cls.isEmpty, let v = node.attributes["class"],
+                      v.split(separator: " ").contains(where: { $0 == cls }) else { return false }
+            } else if rest.hasPrefix("#") {
+                rest.removeFirst()
+                let id = consumeSelectorIdentifier(&rest)
+                guard !id.isEmpty, node.attributes["id"] == id else { return false }
+            } else if rest.hasPrefix("[") {
+                rest.removeFirst()
+                guard let end = rest.firstIndex(of: "]") else { return false }
+                let expr = String(rest[..<end])
+                rest = String(rest[rest.index(after: end)...])
+                if expr.contains("=") {
+                    let kv = expr.split(separator: "=", maxSplits: 1).map(String.init)
+                    let attr = kv[0].trimmingCharacters(in: .whitespaces)
+                    var val = kv[1].trimmingCharacters(in: .whitespaces)
+                    if val.count >= 2, (val.first == "\"" || val.first == "'") {
+                        val.removeFirst(); val.removeLast()
+                    }
+                    if attr == "text" {
+                        guard node.textContent.trimmingCharacters(in: .whitespacesAndNewlines).contains(val) else { return false }
+                    } else {
+                        guard node.attributes[attr] == val else { return false }
+                    }
+                } else {
+                    let attr = expr.trimmingCharacters(in: .whitespaces)
+                    guard node.attributes[attr] != nil else { return false }
+                }
+            } else {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// 按 CSS 标识符字符集消费一段名称（字母/数字/`-`/`_`）。
+    private func consumeSelectorIdentifier(_ s: inout String) -> String {
+        var name = ""
+        while let ch = s.first, ch.isLetter || ch.isNumber || ch == "-" || ch == "_" {
+            name.append(ch)
+            s.removeFirst()
+        }
+        return name
     }
 
     /// 匹配 XPath 子集；返回所有命中节点（支持 // 任意深度、[@attr]、[n]、text()、@attr 简化）。
