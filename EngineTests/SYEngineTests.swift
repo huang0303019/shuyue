@@ -216,6 +216,17 @@ final class MockURLProtocol: URLProtocol {
             return
         }
         let (response, data) = handler(request)
+        // 模拟系统 URLSession 的 cookie 行为：响应头带 Set-Cookie 时写入共享存储，
+        // 否则自定义 URLProtocol 绕过系统 HTTP 协议栈，Cookie 永远不会落库。
+        if let http = response as? HTTPURLResponse,
+           let url = request.url,
+           let setCookie = http.value(forHTTPHeaderField: "Set-Cookie") {
+            let cookies = HTTPCookie.cookies(
+                withResponseHeaderFields: ["Set-Cookie": setCookie],
+                for: url
+            )
+            HTTPCookieStorage.shared.setCookies(cookies, for: url, mainDocumentURL: nil)
+        }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)

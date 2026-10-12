@@ -73,7 +73,7 @@ final class SYGroupingTests: XCTestCase {
         let a = makeSource("A", url: "https://a.com", group: "小说,轻小说")
         let sections = SYBookSourceGrouping.sections(sources: [a], pinRecords: [:])
         XCTAssertEqual(sections.count, 2)
-        XCTAssertEqual(sections.map(\.name), ["小说", "轻小说"])
+        XCTAssertEqual(sections.map(\.name), ["轻小说", "小说"], "分组按 zh_CN 拼音升序：轻(q) < 小(x)")
         XCTAssertTrue(sections.allSatisfy { $0.sourceIDs == ["https://a.com"] })
     }
 

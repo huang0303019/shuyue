@@ -18,7 +18,7 @@ final class SYHealthCheckerTests: XCTestCase {
             self.respond(for: request, search: Self.searchHTML, detailToc: Self.detailTocHTML, content: Self.contentHTML)
         }
         let source = makeHTMLSource()
-        let item = try await runCheck(source: source)
+        let item = try await runCheck(source: source, session: makeMockSession())
 
         XCTAssertEqual(item.health, .passed, "全阶段通过应判定为 passed")
         XCTAssertNil(item.failureCategory, "通过时不应有失败分类")
@@ -36,7 +36,7 @@ final class SYHealthCheckerTests: XCTestCase {
         MockURLProtocol.handler = { request in
             self.respond(for: request, search: "<ul id=\"list\"></ul>", detailToc: Self.detailTocHTML, content: Self.contentHTML)
         }
-        let item = try await runCheck(source: makeHTMLSource())
+        let item = try await runCheck(source: makeHTMLSource(), session: makeMockSession())
 
         XCTAssertEqual(item.failureCategory, .searchFailed, "搜索无结果应为 searchFailed")
         XCTAssertEqual(item.outcome(.search).status, .fail)
@@ -78,7 +78,7 @@ final class SYHealthCheckerTests: XCTestCase {
         MockURLProtocol.handler = { request in
             self.respond(for: request, search: Self.searchHTML, detailToc: Self.detailTocHTML, content: "<div id=\"content\"></div>")
         }
-        let item = try await runCheck(source: makeHTMLSource())
+        let item = try await runCheck(source: makeHTMLSource(), session: makeMockSession())
 
         XCTAssertEqual(item.failureCategory, .contentEmpty, "正文为空应为 contentEmpty")
         XCTAssertEqual(item.outcome(.search).status, .pass)
@@ -98,7 +98,7 @@ final class SYHealthCheckerTests: XCTestCase {
         let source = makeHTMLSource()
         var withSearch = source
         withSearch.ruleSearch.checkKeyWord = "测试"
-        let item = try await runCheck(source: withSearch)
+        let item = try await runCheck(source: withSearch, session: makeMockSession())
 
         XCTAssertEqual(item.health, .passed)
         let url = try XCTUnwrap(observedURL, "应捕获搜索请求")
@@ -106,6 +106,12 @@ final class SYHealthCheckerTests: XCTestCase {
     }
 
     // MARK: - 辅助
+
+    private func makeMockSession() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        return URLSession(configuration: config)
+    }
 
     private func runCheck(source: SYBookSource, session: URLSession? = nil) async throws -> SYCheckItem {
         let checker = SYHealthChecker(session: session)

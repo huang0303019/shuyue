@@ -43,6 +43,27 @@ final class SYLoginUiTests: XCTestCase {
         }
     }
 
+    // MARK: - 辅助
+
+    /// URLSession 发送请求后 `request.httpBody` 可能已被置空（body 走流）；
+    /// 统一回退读取 `httpBodyStream`，保证 Mock 能取到 POST 体。
+    private static func bodyText(of request: URLRequest) -> String? {
+        if let body = request.httpBody, !body.isEmpty {
+            return String(data: body, encoding: .utf8)
+        }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data.isEmpty ? nil : String(data: data, encoding: .utf8)
+    }
+
     // MARK: - loginUi 解析：数组形态
 
     func testLoginUiArrayForm() throws {
@@ -162,9 +183,7 @@ final class SYLoginUiTests: XCTestCase {
         var capturedContentType: String?
         MockURLProtocol.handler = { request in
             capturedMethod = request.httpMethod
-            if let body = request.httpBody, let text = String(data: body, encoding: .utf8) {
-                capturedBody = text
-            }
+            capturedBody = Self.bodyText(of: request)
             capturedContentType = request.value(forHTTPHeaderField: "Content-Type")
             let response = HTTPURLResponse(
                 url: request.url!,

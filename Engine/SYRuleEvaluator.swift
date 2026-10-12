@@ -394,7 +394,11 @@ enum SYRuleEvaluator {
         case .nodes(let nodes):
             debug(.finalResult(value: nodes.first?.fullText ?? "", elapsedMs: elapsedMs))
         case .json(let any):
-            debug(.finalResult(value: any == nil ? "" : (SYJSONPath.displayString(any) ?? ""), elapsedMs: elapsedMs))
+            if let arr = any as? [Any] {
+                debug(.finalResultList(values: arr.prefix(20).map { SYJSONPath.displayString($0) ?? "" }, elapsedMs: elapsedMs))
+            } else {
+                debug(.finalResult(value: any == nil ? "" : (SYJSONPath.displayString(any) ?? ""), elapsedMs: elapsedMs))
+            }
         case .string(let s):
             debug(.finalResult(value: s, elapsedMs: elapsedMs))
         case .none:

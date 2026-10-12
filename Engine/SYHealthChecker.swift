@@ -197,9 +197,11 @@ final class SYHealthChecker: ObservableObject, Identifiable {
             } catch {
                 if self.item?.failureCategory == nil {
                     self.recordFailure(.siteError)
-                    self.skipPendingStages()
                 }
             }
+            // 致命错误 / 提前返回路径下，剩余的 pending 阶段统一标记为跳过，
+            // 保证 item.isFinished 永远收敛（避免 UI 卡在“进行中”）。
+            self.skipPendingStages()
             self.finish(t0: t0)
         }
     }

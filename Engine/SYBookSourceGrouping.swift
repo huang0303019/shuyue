@@ -125,8 +125,10 @@ enum SYBookSourceGrouping {
                 kind: .pinnedTop
             ))
         }
+        // 显式 zh_CN：中文分组名按拼音升序（localizedStandardCompare 会跟随系统 locale，
+        // 英文环境按 Unicode 码位排，与产品预期不一致）。
         for name in byNormalGroup.keys.sorted(by: {
-            $0.localizedStandardCompare($1) == .orderedAscending
+            $0.compare($1, locale: Locale(identifier: "zh_CN")) == .orderedAscending
         }) {
             let urls = byNormalGroup[name]!
             result.append(SYSourceGroupSection(

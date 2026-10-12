@@ -678,7 +678,7 @@ private struct GroupMoveSheet: View {
         state.groupCounts()
             .map { $0.name }
             .filter { $0 != SYBookSourceGrouping.defaultGroupName && !excludedGroups.contains($0) }
-            .sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending })
+            .sorted(by: { $0.compare($1, locale: Locale(identifier: "zh_CN")) == .orderedAscending })
     }
 }
 
