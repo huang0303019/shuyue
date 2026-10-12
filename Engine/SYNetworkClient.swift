@@ -33,7 +33,8 @@ struct SYNetworkClient: Sendable {
         url: String,
         method: String = "GET",
         headers: [String: String] = [:],
-        body: Data? = nil
+        body: Data? = nil,
+        debug: SYDebugSink? = nil
     ) async throws -> SYHTTPResult {
         guard let requestURL = URL(string: url) else {
             throw SYEngineError.badURL(url)
@@ -47,6 +48,8 @@ struct SYNetworkClient: Sendable {
         if let body {
             req.httpBody = body
         }
+
+        debug?(.requestSent(url: url, method: method, headers: merged))
 
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = timeout
@@ -65,9 +68,19 @@ struct SYNetworkClient: Sendable {
         do {
             (data, response) = try await activeSession.data(for: req)
         } catch {
+            debug?(.error(step: "请求失败", message: "\(method.uppercased()) \(url)：\(error.localizedDescription)"))
             throw SYEngineError.network(error.localizedDescription)
         }
         let code = (response as? HTTPURLResponse)?.statusCode
+        let previewData = data.prefix(8192)
+        let preview = String(data: previewData, encoding: .utf8) ?? ""
+        debug?(.responseReceived(
+            url: url,
+            statusCode: code,
+            bytes: data.count,
+            preview: preview,
+            truncated: data.count > 8192
+        ))
         return SYHTTPResult(data: data, response: response, statusCode: code)
     }
 

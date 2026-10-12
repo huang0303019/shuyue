@@ -14,6 +14,7 @@ struct BookSourceListView: View {
     @State private var editingSource: SYBookSource?
     @State private var editingVariable: SYBookSource?
     @State private var loggingInSource: SYBookSource?
+    @State private var debuggingSource: SYBookSource?
 
     var body: some View {
         SYScreen(
@@ -79,6 +80,10 @@ struct BookSourceListView: View {
         }
         .sheet(item: $loggingInSource) { source in
             SourceLoginSheet(source: source)
+                .environmentObject(state)
+        }
+        .sheet(item: $debuggingSource) { source in
+            SourceDebugSheet(source: source)
                 .environmentObject(state)
         }
         .confirmationDialog(
@@ -260,6 +265,12 @@ struct BookSourceListView: View {
                 checkSheet = checker
             } label: {
                 Label("实跑校验", systemImage: "checkmark.shield")
+            }
+
+            Button {
+                debuggingSource = source
+            } label: {
+                Label("规则调试", systemImage: "wrench.and.screwdriver")
             }
 
             if let record = state.pinRecord(for: source) {

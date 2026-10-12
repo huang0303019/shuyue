@@ -22,20 +22,21 @@ actor SYLegadoEngine {
     }
 
     /// 按模板发起请求（支持 URL 模板变量与 `url,{json}` 请求体配置）。
-    private func requestTemplate(_ template: String, vars: [String: String]) async throws -> (SYHTTPResult, String) {
+    private func requestTemplate(_ template: String, vars: [String: String], debug: SYDebugSink? = nil) async throws -> (SYHTTPResult, String) {
         let (urlText, method, body) = resolveTemplate(template, vars: vars)
         let result = try await client.request(
             url: urlText,
             method: method,
             headers: headerVars(vars),
-            body: body?.data(using: .utf8)
+            body: body?.data(using: .utf8),
+            debug: debug
         )
         return (result, urlText)
     }
 
     // MARK: - 搜索
 
-    func search(keyword: String, page: Int = 1) async throws -> [SYBook] {
+    func search(keyword: String, page: Int = 1, debug: SYDebugSink? = nil) async throws -> [SYBook] {
         guard let template = source.searchUrl, !template.isEmpty else {
             throw SYEngineError.emptyResult("书源未配置 searchUrl")
         }
@@ -43,15 +44,15 @@ actor SYLegadoEngine {
             throw SYEngineError.emptyResult("书源已禁用搜索")
         }
         let vars = searchVariables(keyword: keyword, page: page)
-        let (result, urlText) = try await requestTemplate(template, vars: vars)
+        let (result, urlText) = try await requestTemplate(template, vars: vars, debug: debug)
         let text = SYTextDecoding.text(from: result.data, response: result.response)
-        let context = makeContext(rawText: text, pageURL: urlText)
+        let context = makeContext(rawText: text, pageURL: urlText, debug: debug)
         return try parseBookList(rule: source.ruleSearch, context: context, baseUrl: source.bookSourceUrl)
     }
 
     // MARK: - 发现
 
-    func explore(url: String? = nil) async throws -> [SYBook] {
+    func explore(url: String? = nil, debug: SYDebugSink? = nil) async throws -> [SYBook] {
         guard source.enabledExplore else {
             throw SYEngineError.emptyResult("书源未启用发现")
         }
@@ -60,19 +61,19 @@ actor SYLegadoEngine {
             throw SYEngineError.emptyResult("书源未配置 exploreUrl")
         }
         let vars = baseVars()
-        let (result, urlText) = try await requestTemplate(template, vars: vars)
+        let (result, urlText) = try await requestTemplate(template, vars: vars, debug: debug)
         let text = SYTextDecoding.text(from: result.data, response: result.response)
-        let context = makeContext(rawText: text, pageURL: urlText)
+        let context = makeContext(rawText: text, pageURL: urlText, debug: debug)
         return try parseExploreList(rule: source.ruleExplore, context: context, baseUrl: source.bookSourceUrl)
     }
 
     // MARK: - 详情
 
-    func bookInfo(_ book: SYBook) async throws -> SYBook {
+    func bookInfo(_ book: SYBook, debug: SYDebugSink? = nil) async throws -> SYBook {
         let requestURL = absolutize(book.detailRequestUrl ?? book.bookUrl, base: source.bookSourceUrl)
-        let (result, urlText) = try await requestTemplate(requestURL, vars: baseVars(bookUrl: book.bookUrl))
+        let (result, urlText) = try await requestTemplate(requestURL, vars: baseVars(bookUrl: book.bookUrl), debug: debug)
         let text = SYTextDecoding.text(from: result.data, response: result.response)
-        let context = makeContext(rawText: text, pageURL: urlText)
+        let context = makeContext(rawText: text, pageURL: urlText, debug: debug)
 
         // init 规则：产物作为后续字段规则的 JSON 根（如番茄书源 `<js>result={...}</js>`）。
         var fieldContext = context
@@ -83,7 +84,8 @@ actor SYLegadoEngine {
                     htmlRoot: nil,
                     baseUrl: urlText,
                     js: js,
-                    fallbackText: text
+                    fallbackText: text,
+                    debug: debug
                 )
             }
         }
@@ -101,15 +103,15 @@ actor SYLegadoEngine {
 
     // MARK: - 目录
 
-    func toc(_ book: SYBook) async throws -> [SYChapter] {
+    func toc(_ book: SYBook, debug: SYDebugSink? = nil) async throws -> [SYChapter] {
         var requestURL = book.detailRequestUrl ?? book.bookUrl
         if let tocTemplate = source.ruleToc.url, !tocTemplate.isEmpty {
             requestURL = fillTemplate(tocTemplate, vars: baseVars(bookUrl: book.bookUrl))
         }
         let urlText = absolutize(requestURL, base: source.bookSourceUrl)
-        let (result, _) = try await requestTemplate(urlText, vars: baseVars(bookUrl: book.bookUrl))
+        let (result, _) = try await requestTemplate(urlText, vars: baseVars(bookUrl: book.bookUrl), debug: debug)
         let text = SYTextDecoding.text(from: result.data, response: result.response)
-        let context = makeContext(rawText: text, pageURL: urlText)
+        let context = makeContext(rawText: text, pageURL: urlText, debug: debug)
 
         let rule = source.ruleToc
         let items = SYRuleEvaluator.list(rule.chapterList, context: context)
@@ -121,7 +123,8 @@ actor SYLegadoEngine {
                 htmlRoot: itemHTML(item),
                 baseUrl: urlText,
                 js: js,
-                fallbackText: nil
+                fallbackText: nil,
+                debug: debug
             )
             guard let title = SYRuleEvaluator.string(rule.chapterName, context: itemContext), !title.isEmpty else { continue }
             guard let chapterURL = SYRuleEvaluator.string(rule.chapterUrl, context: itemContext), !chapterURL.isEmpty else { continue }
@@ -140,7 +143,7 @@ actor SYLegadoEngine {
 
     // MARK: - 正文
 
-    func content(_ chapter: SYChapter) async throws -> SYContentResult {
+    func content(_ chapter: SYChapter, debug: SYDebugSink? = nil) async throws -> SYContentResult {
         var requestURL = chapter.url
         if let t = source.ruleContent.url, !t.isEmpty, t.contains("{{chapterUrl}}") {
             requestURL = fillTemplate(t, vars: [
@@ -150,9 +153,9 @@ actor SYLegadoEngine {
             ])
         }
         let urlText = absolutize(requestURL, base: source.bookSourceUrl)
-        let (result, _) = try await requestTemplate(urlText, vars: baseVars())
+        let (result, _) = try await requestTemplate(urlText, vars: baseVars(), debug: debug)
         let text = SYTextDecoding.text(from: result.data, response: result.response)
-        let context = makeContext(rawText: text, pageURL: urlText)
+        let context = makeContext(rawText: text, pageURL: urlText, debug: debug)
 
         guard let content = SYRuleEvaluator.string(source.ruleContent.content, context: context), !content.isEmpty else {
             throw SYEngineError.emptyResult("正文规则未命中：\(source.ruleContent.content ?? "")")
@@ -176,7 +179,8 @@ actor SYLegadoEngine {
                 htmlRoot: itemHTML(item),
                 baseUrl: baseUrl,
                 js: js,
-                fallbackText: nil
+                fallbackText: nil,
+                debug: context.debug
             )
             guard let name = SYRuleEvaluator.string(rule.name, context: itemContext), !name.isEmpty else { continue }
             guard let bookURL = SYRuleEvaluator.string(rule.bookUrl, context: itemContext), !bookURL.isEmpty else { continue }
@@ -206,7 +210,8 @@ actor SYLegadoEngine {
                 htmlRoot: itemHTML(item),
                 baseUrl: baseUrl,
                 js: js,
-                fallbackText: nil
+                fallbackText: nil,
+                debug: context.debug
             )
             guard let name = SYRuleEvaluator.string(rule.name, context: itemContext), !name.isEmpty else { continue }
             guard let bookURL = SYRuleEvaluator.string(rule.bookUrl, context: itemContext), !bookURL.isEmpty else { continue }
@@ -229,7 +234,7 @@ actor SYLegadoEngine {
 
     // MARK: - 工具
 
-    private func makeContext(rawText: String, pageURL: String) -> SYRuleContext {
+    private func makeContext(rawText: String, pageURL: String, debug: SYDebugSink? = nil) -> SYRuleContext {
         var jsonRoot: Any?
         if let data = rawText.data(using: .utf8) {
             jsonRoot = try? JSONSerialization.jsonObject(with: data)
@@ -238,12 +243,22 @@ actor SYLegadoEngine {
         if jsonRoot == nil {
             htmlRoot = SYHTMLParser.parse(rawText)
         }
+        if let debug {
+            let contentType = jsonRoot != nil ? "JSON" : (htmlRoot != nil ? "HTML" : "文本")
+            debug(.contentSet(
+                contentType: contentType,
+                length: rawText.count,
+                preview: String(rawText.prefix(200)),
+                url: pageURL
+            ))
+        }
         return SYRuleContext(
             jsonRoot: jsonRoot,
             htmlRoot: htmlRoot,
             baseUrl: pageURL,
             js: js,
-            fallbackText: rawText
+            fallbackText: rawText,
+            debug: debug
         )
     }
 

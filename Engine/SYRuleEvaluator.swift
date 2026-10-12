@@ -9,19 +9,23 @@ struct SYRuleContext {
     var baseUrl: String?
     var js: SYJavaScriptContext?
     var fallbackText: String?
+    /// 调试事件接收器；nil 时规则求值不产生任何调试开销。
+    var debug: SYDebugSink?
 
     init(
         jsonRoot: Any? = nil,
         htmlRoot: SYHTMLNode? = nil,
         baseUrl: String? = nil,
         js: SYJavaScriptContext? = nil,
-        fallbackText: String? = nil
+        fallbackText: String? = nil,
+        debug: SYDebugSink? = nil
     ) {
         self.jsonRoot = jsonRoot
         self.htmlRoot = htmlRoot
         self.baseUrl = baseUrl
         self.js = js
         self.fallbackText = fallbackText
+        self.debug = debug
     }
 }
 
@@ -115,27 +119,42 @@ enum SYRuleEvaluator {
     }
 
     /// 逐级执行 `@` 分隔的子规则。
+    /// 开启调试时逐个上报规则拆解、子规则执行前后与最终结果事件。
     private static func chain(_ rule: String, context: SYRuleContext, current: SYRuleValue?) -> SYRuleValue? {
         let parts = splitRule(rule)
-        var currentValue = current
-        for part in parts {
-            currentValue = apply(part, context: context, current: currentValue)
+        guard let debug = context.debug else {
+            var currentValue = current
+            for part in parts {
+                currentValue = apply(part, context: context, current: currentValue)
+            }
+            return currentValue
         }
+
+        debug(.rulesParsed(rule: rule, segments: parts))
+        let t0 = Date()
+        var currentValue = current
+        for (index, part) in parts.enumerated() {
+            debug(.beforeExtract(index: index, mode: mode(for: part), rule: part))
+            let after = apply(part, context: context, current: currentValue, index: index)
+            emitResult(after, index: index, debug: debug)
+            currentValue = after
+        }
+        emitFinal(currentValue, elapsedMs: Date().timeIntervalSince(t0) * 1000, debug: debug)
         return currentValue
     }
 
-    private static func apply(_ part: String, context: SYRuleContext, current: SYRuleValue?) -> SYRuleValue? {
+    private static func apply(_ part: String, context: SYRuleContext, current: SYRuleValue?, index: Int? = nil) -> SYRuleValue? {
         let sub = part.trimmingCharacters(in: .whitespaces)
         guard !sub.isEmpty else { return current }
 
         // `<js>...</js>` 整段脚本
         if sub.hasPrefix("<js>"), sub.hasSuffix("</js>") {
             let script = String(sub.dropFirst("<js>".count).dropLast("</js>".count))
-            return applyJS(script, context: context, current: current)
+            return applyJS(script, context: context, current: current, index: index)
         }
         // 显式前缀
         if sub.hasPrefix("js:") {
-            return applyJS(String(sub.dropFirst("js:".count)), context: context, current: current)
+            return applyJS(String(sub.dropFirst("js:".count)), context: context, current: current, index: index)
         }
         if sub.hasPrefix("json:") {
             return applyJSONPath(String(sub.dropFirst("json:".count)), context: context, current: current)
@@ -147,10 +166,10 @@ enum SYRuleEvaluator {
             return applyXPath(String(sub.dropFirst("xpath:".count)), context: context, current: current)
         }
         if sub.hasPrefix("regex:") {
-            return applyRegex(String(sub.dropFirst("regex:".count)), context: context, current: current)
+            return applyRegex(String(sub.dropFirst("regex:".count)), context: context, current: current, index: index)
         }
         if sub.hasPrefix("replace:") {
-            return applyReplace(String(sub.dropFirst("replace:".count)), context: context, current: current)
+            return applyReplace(String(sub.dropFirst("replace:".count)), context: context, current: current, index: index)
         }
         // 子集外能力：返回原值，不阻断链
         if sub.hasPrefix("put:") || sub.hasPrefix("get:") || sub.hasPrefix("cookie:") || sub.hasPrefix("header:") {
@@ -158,7 +177,7 @@ enum SYRuleEvaluator {
         }
         // 容错：`@css:` 等整体带 @ 前缀
         if sub.hasPrefix("@") {
-            return apply(String(sub.dropFirst()), context: context, current: current)
+            return apply(String(sub.dropFirst()), context: context, current: current, index: index)
         }
         // JSONPath
         if sub == "$" || sub.hasPrefix("$.") || sub.hasPrefix("$[") || sub.hasPrefix("[") {
@@ -238,7 +257,7 @@ enum SYRuleEvaluator {
         return .json(SYJSONPath.evaluate(path: path, root: root))
     }
 
-    private static func applyJS(_ script: String, context: SYRuleContext, current: SYRuleValue?) -> SYRuleValue? {
+    private static func applyJS(_ script: String, context: SYRuleContext, current: SYRuleValue?, index: Int? = nil) -> SYRuleValue? {
         guard let js = context.js else { return current }
         let resultValue: Any?
         switch current {
@@ -249,8 +268,15 @@ enum SYRuleEvaluator {
         }
         do {
             let out = try js.evaluate(script, result: resultValue, baseUrl: context.baseUrl)
+            let display = SYJSONPath.displayString(out) ?? ""
+            if let index, let debug = context.debug {
+                debug(.jsExecuted(index: index, script: script, result: display))
+            }
             return .json(out)
         } catch {
+            if let index, let debug = context.debug {
+                debug(.error(step: "JS 执行", message: "子规则 #\(index) 执行失败：\(error.localizedDescription)"))
+            }
             return .json(nil)
         }
     }
@@ -273,7 +299,7 @@ enum SYRuleEvaluator {
         return .nodes(SYXPath.evaluate(expr, root: root))
     }
 
-    private static func applyRegex(_ spec: String, context: SYRuleContext, current: SYRuleValue?) -> SYRuleValue? {
+    private static func applyRegex(_ spec: String, context: SYRuleContext, current: SYRuleValue?, index: Int? = nil) -> SYRuleValue? {
         guard let s = stringValue(current), !spec.isEmpty else { return current }
         var pattern = spec
         var group = 1
@@ -285,31 +311,96 @@ enum SYRuleEvaluator {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return current }
         let ns = NSRange(s.startIndex..<s.endIndex, in: s)
         guard let match = regex.firstMatch(in: s, options: [], range: ns) else { return current }
+        var result = current
         if group == 0 {
-            if let r = Range(match.range, in: s) { return .string(String(s[r])) }
+            if let r = Range(match.range, in: s) { result = .string(String(s[r])) }
         } else if match.numberOfRanges > group, let r = Range(match.range(at: group), in: s) {
-            return .string(String(s[r]))
+            result = .string(String(s[r]))
         } else if let r = Range(match.range(at: 0), in: s) {
-            return .string(String(s[r]))
+            result = .string(String(s[r]))
         }
-        return current
+        if let index, let debug = context.debug {
+            let before = s.prefix(200)
+            let after = stringValue(result)?.prefix(200) ?? ""
+            debug(.regexApplied(index: index, pattern: pattern, replacement: "组\(group)", before: String(before), after: String(after)))
+        }
+        return result
     }
 
-    private static func applyReplace(_ spec: String, context: SYRuleContext, current: SYRuleValue?) -> SYRuleValue? {
+    private static func applyReplace(_ spec: String, context: SYRuleContext, current: SYRuleValue?, index: Int? = nil) -> SYRuleValue? {
         guard let s = stringValue(current), !spec.isEmpty else { return current }
         let parts = spec.components(separatedBy: "||")
         guard parts.count >= 2 else { return current }
         let old = parts[0]
         let newValue = parts.dropFirst().joined(separator: "||")
+        let result: SYRuleValue
         if let regex = try? NSRegularExpression(pattern: old) {
             let ns = NSRange(s.startIndex..<s.endIndex, in: s)
             let out = regex.stringByReplacingMatches(in: s, options: [], range: ns, withTemplate: newValue)
-            return .string(out)
+            result = .string(out)
+        } else {
+            result = .string(s.replacingOccurrences(of: old, with: newValue))
         }
-        return .string(s.replacingOccurrences(of: old, with: newValue))
+        if let index, let debug = context.debug {
+            let before = s.prefix(200)
+            let after = stringValue(result)?.prefix(200) ?? ""
+            debug(.regexApplied(index: index, pattern: old, replacement: newValue, before: String(before), after: String(after)))
+        }
+        return result
     }
 
     // MARK: - 辅助
+
+    /// 子规则类型标签（调试日志展示用）。
+    private static func mode(for part: String) -> String {
+        let sub = part.trimmingCharacters(in: .whitespaces)
+        if sub.hasPrefix("<js>") || sub.hasPrefix("js:") { return "js" }
+        if sub.hasPrefix("json:") { return "json" }
+        if sub.hasPrefix("css:") { return "css" }
+        if sub.hasPrefix("xpath:") { return "xpath" }
+        if sub.hasPrefix("regex:") { return "regex" }
+        if sub.hasPrefix("replace:") { return "replace" }
+        if sub.hasPrefix("@") { return "verb" }
+        if sub == "$" || sub.hasPrefix("$.") || sub.hasPrefix("$[") || sub.hasPrefix("[") { return "json" }
+        if sub.hasPrefix("//") || sub.hasPrefix("/") { return "xpath" }
+        switch sub {
+        case "text", "all", "html", "textNodes", "ownText", "trim", "strip": return "verb"
+        default: break
+        }
+        return "default"
+    }
+
+    /// 子规则执行后的值/列表结果事件。
+    private static func emitResult(_ value: SYRuleValue?, index: Int, debug: SYDebugSink) {
+        switch value {
+        case .nodes(let nodes) where nodes.count > 1:
+            debug(.afterExtractList(index: index, count: nodes.count, items: nodes.prefix(10).map { $0.fullText }))
+        case .nodes(let nodes):
+            debug(.afterExtractValue(index: index, result: nodes.first?.fullText ?? ""))
+        case .json(let any):
+            debug(.afterExtractValue(index: index, result: any == nil ? "" : (SYJSONPath.displayString(any) ?? "")))
+        case .string(let s):
+            debug(.afterExtractValue(index: index, result: s))
+        case .none:
+            debug(.afterExtractValue(index: index, result: ""))
+        }
+    }
+
+    /// 整条规则链求值完成事件。
+    private static func emitFinal(_ value: SYRuleValue?, elapsedMs: Double, debug: SYDebugSink) {
+        switch value {
+        case .nodes(let nodes) where nodes.count > 1:
+            debug(.finalResultList(values: nodes.prefix(20).map { $0.fullText }, elapsedMs: elapsedMs))
+        case .nodes(let nodes):
+            debug(.finalResult(value: nodes.first?.fullText ?? "", elapsedMs: elapsedMs))
+        case .json(let any):
+            debug(.finalResult(value: any == nil ? "" : (SYJSONPath.displayString(any) ?? ""), elapsedMs: elapsedMs))
+        case .string(let s):
+            debug(.finalResult(value: s, elapsedMs: elapsedMs))
+        case .none:
+            debug(.finalResult(value: "", elapsedMs: elapsedMs))
+        }
+    }
 
     private static let knownTags: Set<String> = [
         "a", "abbr", "article", "aside", "b", "body", "br", "button", "div", "em",
