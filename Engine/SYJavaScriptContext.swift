@@ -10,7 +10,7 @@ final class SYJavaScriptContext: @unchecked Sendable {
     private let lock = NSLock()
     private var lastException: String?
 
-    init?(jsLib: String?) {
+    init?(jsLib: String?, sourceVariables: String? = nil) {
         guard let ctx = JSContext() else { return nil }
         self.context = ctx
 
@@ -23,6 +23,7 @@ final class SYJavaScriptContext: @unchecked Sendable {
             var console = { log: function(){}, info: function(){}, warn: function(){}, error: function(){} };
         """)
         SYJavaScriptContext.injectBuiltins(into: ctx)
+        injectSourceVariable(sourceVariables)
 
         if let jsLib, !jsLib.isEmpty {
             _ = ctx.evaluateScript(jsLib)
@@ -44,6 +45,51 @@ final class SYJavaScriptContext: @unchecked Sendable {
             throw SYEngineError.jsError(exc)
         }
         return fromJS(value)
+    }
+
+    // MARK: - 源变量（source.getVariable()）
+
+    /// 把书源的 JSON 文本变量注入全局 `source` 对象，兼容 Legado 两种调用：
+    /// - `source.getVariable()`：返回整段 JSON 文本（供 `JSON.parse(...)` 使用）；
+    /// - `source.getVariable(key)`：返回变量 JSON 对象中该 key 的值，未命中返回 null。
+    /// 非法 JSON 时对象为 null，无参调用仍返回原文，带键调用统一返回 null。
+    private func injectSourceVariable(_ json: String?) {
+        let trimmed = (json ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var objectExpr = "null"
+        if !trimmed.isEmpty,
+           let data = trimmed.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) {
+            objectExpr = Self.jsValueLiteral(obj) ?? "null"
+        }
+        let rawExpr = Self.jsStringLiteral(trimmed) ?? "''"
+        context.evaluateScript("""
+            var _sourceVariableRaw = \(rawExpr);
+            var _sourceVariableObj = \(objectExpr);
+            var source = {
+                getVariable: function(key) {
+                    if (key === undefined || key === null) return String(_sourceVariableRaw);
+                    if (_sourceVariableObj === null || typeof _sourceVariableObj !== 'object') return null;
+                    if (Object.prototype.hasOwnProperty.call(_sourceVariableObj, key)) return _sourceVariableObj[key];
+                    return null;
+                }
+            };
+        """)
+    }
+
+    /// 把 Foundation 值编码成可直接作为 JS 表达式使用的 JSON 字面量。
+    static func jsValueLiteral(_ value: Any) -> String? {
+        guard JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let json = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return json
+    }
+
+    /// 把 Swift 字符串编码成 JS 字符串字面量（JSON 字符串字面量为合法 JS 字面量）。
+    private static func jsStringLiteral(_ string: String) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: string) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     // MARK: - 内建函数兜底

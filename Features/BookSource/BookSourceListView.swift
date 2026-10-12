@@ -9,7 +9,11 @@ struct BookSourceListView: View {
 
     @State private var showImport = false
     @State private var pendingDelete: SYBookSource?
-    @State private var validationNotice: SourceValidationNotice?
+    @State private var checkSheet: SYHealthChecker?
+    @State private var pendingGroupMove: SYBookSource?
+    @State private var editingSource: SYBookSource?
+    @State private var editingVariable: SYBookSource?
+    @State private var loggingInSource: SYBookSource?
 
     var body: some View {
         SYScreen(
@@ -32,15 +36,50 @@ struct BookSourceListView: View {
                     statCard(title: "已启用", value: "\(state.enabledSources.count)", image: "checkmark.seal", tint: SYPalette.gold)
                 }
 
-                VStack(spacing: SYMetric.gapM) {
-                    ForEach(state.sources) { source in
-                        sourceRow(source)
+                groupToggle
+
+                if state.groupByList {
+                    groupedList
+                } else {
+                    VStack(spacing: SYMetric.gapM) {
+                        ForEach(state.sources) { source in
+                            sourceRow(source)
+                        }
                     }
                 }
             }
         }
         .sheet(isPresented: $showImport) {
             ImportSourceSheet()
+        }
+        .sheet(item: $checkSheet) { checker in
+            SourceCheckSheet(checker: checker) { summary in
+                if let summary, let source = checker.item?.source {
+                    state.recordHealth(summary, for: source.bookSourceUrl)
+                }
+            }
+            .environmentObject(state)
+        }
+        .sheet(item: $pendingGroupMove) { source in
+            GroupMoveSheet(source: source) { group in
+                state.setGroup(group, for: [source])
+            }
+        }
+        .sheet(item: $editingSource) { source in
+            SourceRuleEditorView(source: source) { updated in
+                state.updateSource(updated)
+            }
+            .environmentObject(state)
+        }
+        .sheet(item: $editingVariable) { source in
+            SourceVariableSheet(source: source) { updated in
+                state.updateSource(updated)
+            }
+            .environmentObject(state)
+        }
+        .sheet(item: $loggingInSource) { source in
+            SourceLoginSheet(source: source)
+                .environmentObject(state)
         }
         .confirmationDialog(
             "移出「\(pendingDelete?.bookSourceName ?? "书源")」？",
@@ -53,12 +92,109 @@ struct BookSourceListView: View {
             }
             Button("取消", role: .cancel) { pendingDelete = nil }
         }
-        .alert(item: $validationNotice) { notice in
-            Alert(
-                title: Text(notice.issues.isEmpty ? "校验通过" : "校验发现问题"),
-                message: Text(notice.message),
-                dismissButton: .default(Text("好"))
-            )
+    }
+
+    /// 分组 / 平铺切换胶囊。
+    private var groupToggle: some View {
+        HStack(spacing: 0) {
+            toggleItem(title: "分组", systemImage: "folder", isOn: state.groupByList) {
+                state.setGroupByList(true)
+            }
+            toggleItem(title: "平铺", systemImage: "list.bullet", isOn: !state.groupByList) {
+                state.setGroupByList(false)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(SYMetric.gapXS)
+        .background(SYPalette.surface, in: RoundedRectangle(cornerRadius: SYMetric.radiusControl, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SYMetric.radiusControl, style: .continuous)
+                .stroke(SYPalette.border, lineWidth: 0.8)
+        )
+    }
+
+    private func toggleItem(title: String, systemImage: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+                    .font(SYFont.callout.weight(isOn ? .semibold : .regular))
+            }
+            .foregroundStyle(isOn ? Color.white : SYPalette.inkSecondary)
+            .padding(.horizontal, SYMetric.gapL)
+            .frame(height: 32)
+            .background(isOn ? SYPalette.accent : Color.clear, in: RoundedRectangle(cornerRadius: SYMetric.radiusControl - 2, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 按分组折叠展示。
+    private var groupedList: some View {
+        let sourceMap = Dictionary(uniqueKeysWithValues: state.sources.map { ($0.bookSourceUrl, $0) })
+        return VStack(spacing: SYMetric.gapM) {
+            ForEach(state.groupedSections) { section in
+                groupSection(section, sourceMap: sourceMap)
+            }
+        }
+    }
+
+    private func groupSection(_ section: SYSourceGroupSection, sourceMap: [String: SYBookSource]) -> some View {
+        let collapsed = state.isGroupCollapsed(section.id)
+        let visibleSources = section.sourceIDs.compactMap { sourceMap[$0] }
+        return VStack(spacing: SYMetric.gapS) {
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    state.toggleGroupCollapsed(section.id)
+                }
+            } label: {
+                HStack(spacing: SYMetric.gapS) {
+                    Image(systemName: section.kind == .pinnedTop ? "pin.fill"
+                            : section.kind == .pinnedBottom ? "pin"
+                            : section.kind == .default ? "tray"
+                            : "folder")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(
+                            section.kind == .normal ? SYPalette.accent
+                            : section.kind == .default ? SYPalette.inkTertiary
+                            : SYPalette.gold
+                        )
+                        .frame(width: 26, height: 26)
+                        .background(
+                            (section.kind == .normal ? SYPalette.accentSoft : SYPalette.surfaceAlt),
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        )
+
+                    Text(section.name)
+                        .font(SYFont.body.weight(.semibold))
+                        .foregroundStyle(SYPalette.ink)
+
+                    Text("\(visibleSources.count)")
+                        .font(SYFont.micro.weight(.medium))
+                        .foregroundStyle(SYPalette.inkTertiary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(SYPalette.surfaceAlt, in: Capsule())
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: collapsed ? "chevron.down" : "chevron.up")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(SYPalette.inkTertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, SYMetric.gapM)
+            .padding(.vertical, 6)
+
+            if !collapsed {
+                VStack(spacing: SYMetric.gapS) {
+                    ForEach(visibleSources) { source in
+                        sourceRow(source)
+                    }
+                }
+            }
         }
     }
 
@@ -83,25 +219,105 @@ struct BookSourceListView: View {
             systemImage: "square.stack.3d.up",
             accent: source.enabled ? SYPalette.accent : SYPalette.inkTertiary
         ) {
-            Button {
-                state.toggleSource(source)
-            } label: {
-                SYPillToggle(isOn: source.enabled)
+            HStack(spacing: SYMetric.gapS) {
+                if let summary = state.healthBySource[source.bookSourceUrl] {
+                    Image(systemName: Self.healthIcon(summary.health))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Self.healthColor(summary.health))
+                        .accessibilityLabel(Self.healthTitle(summary.health))
+                }
+                Button {
+                    state.toggleSource(source)
+                } label: {
+                    SYPillToggle(isOn: source.enabled)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(source.enabled ? "停用 \(source.bookSourceName)" : "启用 \(source.bookSourceName)")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(source.enabled ? "停用 \(source.bookSourceName)" : "启用 \(source.bookSourceName)")
         }
         .contextMenu {
             Button {
-                validationNotice = SourceValidationNotice(source: source, issues: state.validate(source))
+                editingSource = source
             } label: {
-                Label("校验书源", systemImage: "checkmark.shield")
+                Label("编辑规则", systemImage: "slider.horizontal.3")
             }
+
+            Button {
+                editingVariable = source
+            } label: {
+                Label("设置源变量", systemImage: "curlybraces")
+            }
+
+            Button {
+                loggingInSource = source
+            } label: {
+                Label("登录", systemImage: "key.horizontal")
+            }
+
+            Button {
+                let checker = SYHealthChecker()
+                checker.start(source: source)
+                checkSheet = checker
+            } label: {
+                Label("实跑校验", systemImage: "checkmark.shield")
+            }
+
+            if let record = state.pinRecord(for: source) {
+                Button {
+                    state.unpin(source)
+                } label: {
+                    Label(record.position == .top ? "取消置顶" : "取消置底", systemImage: "xmark.circle")
+                }
+            } else {
+                Button {
+                    state.pinToTop(source)
+                } label: {
+                    Label("置顶", systemImage: "pin")
+                }
+                Button {
+                    state.pinToBottom(source)
+                } label: {
+                    Label("置底", systemImage: "pin.slash")
+                }
+            }
+
+            Button {
+                pendingGroupMove = source
+            } label: {
+                Label("移动到分组", systemImage: "folder")
+            }
+
             Button(role: .destructive) {
                 pendingDelete = source
             } label: {
                 Label("删除书源", systemImage: "trash")
             }
+        }
+    }
+
+    // MARK: - 行内健康徽章
+
+    private static func healthIcon(_ health: SYSourceHealth) -> String {
+        switch health {
+        case .passed: return "checkmark.circle.fill"
+        case .contentError: return "exclamationmark.triangle.fill"
+        case .fetchError: return "xmark.circle.fill"
+        }
+    }
+
+    private static func healthColor(_ health: SYSourceHealth) -> Color {
+        switch health {
+        case .passed: return SYPalette.accent
+        case .contentError: return SYPalette.gold
+        case .fetchError: return SYPalette.danger
+        }
+    }
+
+    private static func healthTitle(_ health: SYSourceHealth) -> String {
+        switch health {
+        case .passed: return "校验通过"
+        case .contentError: return "正文异常"
+        case .fetchError: return "抓取异常"
         }
     }
 
@@ -136,16 +352,81 @@ struct BookSourceListView: View {
     }
 }
 
-// MARK: - 校验结果
+// MARK: - 移动到分组
 
-private struct SourceValidationNotice: Identifiable {
+@MainActor
+private struct GroupMoveSheet: View {
     let source: SYBookSource
-    let issues: [String]
+    let onSelect: (String) -> Void
 
-    var id: String { source.bookSourceUrl }
-    var message: String {
-        if issues.isEmpty { return "「\(source.bookSourceName)」规则完整，可以正常使用。" }
-        return issues.joined(separator: "\n")
+    @EnvironmentObject private var state: SYAppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var newGroupName = ""
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("现有分组") {
+                    Button {
+                        onSelect("")
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Label("移出分组（默认分组）", systemImage: "tray")
+                            Spacer()
+                            if let group = source.bookSourceGroup, !group.isEmpty {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(SYPalette.accent)
+                            }
+                        }
+                    }
+                    ForEach(existingGroups, id: \.self) { group in
+                        Button {
+                            onSelect(group)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Label(group, systemImage: "folder")
+                                Spacer()
+                                if source.bookSourceGroup == group {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(SYPalette.accent)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section("新建分组") {
+                    TextField("分组名称", text: $newGroupName)
+                    Button {
+                        let name = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !name.isEmpty else { return }
+                        onSelect(name)
+                        dismiss()
+                    } label: {
+                        Label("创建并移动", systemImage: "plus.circle")
+                    }
+                    .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .navigationTitle("移动到分组")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    /// 现有分组（按名称升序）+ 置顶/置底不作为可选项；来源组保留原样。
+    private var existingGroups: [String] {
+        state.groupCounts()
+            .map { $0.name }
+            .filter { $0 != SYBookSourceGrouping.defaultGroupName }
+            .sorted()
     }
 }
 
@@ -174,6 +455,7 @@ private struct ImportSourceSheet: View {
     @State private var url = ""
     @State private var isImporting = false
     @State private var result: String?
+    @State private var pendingPlan: SYImportPlan?
 
     var body: some View {
         NavigationStack {
@@ -247,6 +529,12 @@ private struct ImportSourceSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .sheet(item: $pendingPlan) { plan in
+            ImportConfirmSheet(plan: plan) { summary in
+                result = summary.text
+            }
+            .environmentObject(state)
+        }
     }
 
     private var textEditor: some View {
@@ -307,15 +595,23 @@ private struct ImportSourceSheet: View {
         isImporting = true
         result = nil
         Task {
-            let summary: SYImportSummary
+            let parsed: Result<[SYBookSource], String>
             switch mode {
             case .text:
-                summary = state.importSources(text: text)
+                let sources = SYBookSourceStore.parse(text)
+                parsed = sources.isEmpty
+                    ? .failure("未解析到任何书源，请确认是标准 Legado 书源 JSON（对象或数组）。")
+                    : .success(sources)
             case .url:
-                summary = await state.importSources(remote: url)
+                parsed = await state.parseRemote(urlString: url)
             }
             isImporting = false
-            result = summary.text
+            switch parsed {
+            case .success(let sources):
+                pendingPlan = state.importPlan(from: sources)
+            case .failure(let message):
+                result = message
+            }
         }
     }
 }

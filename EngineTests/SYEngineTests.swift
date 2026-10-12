@@ -78,6 +78,51 @@ final class SYEngineTests: XCTestCase {
         XCTAssertEqual(dict?["a"] as? Double, 1, "JS 对象应可桥接为字典")
     }
 
+    // MARK: - 源变量（source.getVariable()）
+
+    func testSourceVariableReadsKeyedValue() throws {
+        let context = try XCTUnwrap(SYJavaScriptContext(
+            jsLib: nil,
+            sourceVariables: #"{"token":"abc","expire": 3600}"#
+        ))
+        let value = try context.evaluate("source.getVariable('token')", result: nil, baseUrl: nil)
+        XCTAssertEqual(value as? String, "abc", "getVariable(key) 应返回 JSON 对象中对应 key 的值")
+    }
+
+    func testSourceVariableNoArgReturnsRawJSON() throws {
+        let raw = #"{"token":"abc"}"#
+        let context = try XCTUnwrap(SYJavaScriptContext(jsLib: nil, sourceVariables: raw))
+        let value = try context.evaluate("source.getVariable()", result: nil, baseUrl: nil)
+        XCTAssertEqual(value as? String, raw, "无参 getVariable() 应原样返回整段 JSON 文本")
+        let parsed = try context.evaluate("JSON.parse(source.getVariable()).token", result: nil, baseUrl: nil)
+        XCTAssertEqual(parsed as? String, "abc", "老式书源 JSON.parse(source.getVariable()) 用法应可用")
+    }
+
+    func testSourceVariableMissAndInvalidJSONReturnNull() throws {
+        let valid = try XCTUnwrap(SYJavaScriptContext(jsLib: nil, sourceVariables: #"{"a":1}"#))
+        let missing = try valid.evaluate("source.getVariable('missing')", result: nil, baseUrl: nil)
+        XCTAssertNil(missing, "未命中 key 应返回 null")
+
+        let invalid = try XCTUnwrap(SYJavaScriptContext(jsLib: nil, sourceVariables: "not-json"))
+        let raw = try invalid.evaluate("source.getVariable()", result: nil, baseUrl: nil)
+        XCTAssertEqual(raw as? String, "not-json", "非法 JSON 时无参调用仍应返回原文")
+        let keyed = try invalid.evaluate("source.getVariable('k')", result: nil, baseUrl: nil)
+        XCTAssertNil(keyed, "非法 JSON 时带 key 调用应返回 null")
+    }
+
+    func testBookSourceVariableDecoding() throws {
+        let json = #"""
+        {"bookSourceName":"变量源","bookSourceUrl":"https://example.com",
+         "variable":"{\"apiKey\":\"x\"}","variableComment":"填入 API Key"}
+        """#
+        let source = try XCTUnwrap(SYBookSource(jsonData: Data(json.utf8)))
+        XCTAssertEqual(source.variable, #"{"apiKey":"x"}"#)
+        XCTAssertEqual(source.variableComment, "填入 API Key")
+        let roundTrip = try XCTUnwrap(SYBookSource(jsonData: source.jsonData()!))
+        XCTAssertEqual(roundTrip.variable, source.variable)
+        XCTAssertEqual(roundTrip.variableComment, source.variableComment)
+    }
+
     // MARK: - HTML 规则（CSS / XPath / Regex / Replace）
 
     func testHTMLRules() throws {

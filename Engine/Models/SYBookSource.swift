@@ -29,6 +29,8 @@ struct SYBookSource: Codable, Identifiable, Equatable {
     var header: String?
     var loginUrl: String?
     var loginUi: String?
+    /// 登录后校验脚本：以登录响应文本为 `result` 执行，非空返回值视为已登录。
+    var loginCheckJs: String?
 
     // ---- 入口 URL ----
     var searchUrl: String?
@@ -44,6 +46,12 @@ struct SYBookSource: Codable, Identifiable, Equatable {
     // ---- 脚本 ----
     var jsLib: String?
 
+    // ---- 源变量 ----
+    /// JSON 文本变量：书源 JS 通过 `source.getVariable()` 读取。
+    var variable: String?
+    /// 源变量说明：展示给用户作为填写指引。
+    var variableComment: String?
+
     // ---- 维护信息 ----
     var lastUpdateTime: Int64?
     var bookUrlPattern: String?
@@ -55,9 +63,10 @@ struct SYBookSource: Codable, Identifiable, Equatable {
         case bookSourceComment, enabled, enabledExplore, enabledSearch
         case enabledCookieJar, eventListener, customOrder, customButton
         case weight, concurrentRate, respondTime, header, loginUrl, loginUi
-        case searchUrl, exploreUrl
+        case loginCheckJs, searchUrl, exploreUrl
         case ruleSearch, ruleExplore, ruleBookInfo, ruleToc, ruleContent
         case jsLib, lastUpdateTime, bookUrlPattern, bookUrlRegex, checkKeyUrl
+        case variable, variableComment
     }
 
     /// 容错解码：Legado 书源在字段缺失、以及数字/字符串混用（如 concurrentRate）上差异很大，
@@ -110,6 +119,7 @@ struct SYBookSource: Codable, Identifiable, Equatable {
         header = str(.header)
         loginUrl = str(.loginUrl)
         loginUi = str(.loginUi)
+        loginCheckJs = str(.loginCheckJs)
         searchUrl = str(.searchUrl)
         exploreUrl = str(.exploreUrl)
         ruleSearch = rules(.ruleSearch, SYRuleSearch.self) ?? SYRuleSearch()
@@ -118,6 +128,8 @@ struct SYBookSource: Codable, Identifiable, Equatable {
         ruleToc = rules(.ruleToc, SYRuleToc.self) ?? SYRuleToc()
         ruleContent = rules(.ruleContent, SYRuleContent.self) ?? SYRuleContent()
         jsLib = str(.jsLib)
+        variable = str(.variable)
+        variableComment = str(.variableComment)
         if let v = try? c.decodeIfPresent(Int64.self, forKey: .lastUpdateTime) {
             lastUpdateTime = v
         } else if let s = str(.lastUpdateTime), let v = Int64(s) {
@@ -149,6 +161,7 @@ struct SYBookSource: Codable, Identifiable, Equatable {
         header: String? = nil,
         loginUrl: String? = nil,
         loginUi: String? = nil,
+        loginCheckJs: String? = nil,
         searchUrl: String? = nil,
         exploreUrl: String? = nil,
         ruleSearch: SYRuleSearch = SYRuleSearch(),
@@ -157,6 +170,8 @@ struct SYBookSource: Codable, Identifiable, Equatable {
         ruleToc: SYRuleToc = SYRuleToc(),
         ruleContent: SYRuleContent = SYRuleContent(),
         jsLib: String? = nil,
+        variable: String? = nil,
+        variableComment: String? = nil,
         lastUpdateTime: Int64? = nil,
         bookUrlPattern: String? = nil,
         bookUrlRegex: String? = nil,
@@ -180,6 +195,7 @@ struct SYBookSource: Codable, Identifiable, Equatable {
         self.header = header
         self.loginUrl = loginUrl
         self.loginUi = loginUi
+        self.loginCheckJs = loginCheckJs
         self.searchUrl = searchUrl
         self.exploreUrl = exploreUrl
         self.ruleSearch = ruleSearch
@@ -188,6 +204,8 @@ struct SYBookSource: Codable, Identifiable, Equatable {
         self.ruleToc = ruleToc
         self.ruleContent = ruleContent
         self.jsLib = jsLib
+        self.variable = variable
+        self.variableComment = variableComment
         self.lastUpdateTime = lastUpdateTime
         self.bookUrlPattern = bookUrlPattern
         self.bookUrlRegex = bookUrlRegex

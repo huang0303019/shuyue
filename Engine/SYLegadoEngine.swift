@@ -18,7 +18,7 @@ actor SYLegadoEngine {
         )
         network.useCookieJar = source.enabledCookieJar
         self.client = network
-        self.js = SYJavaScriptContext(jsLib: source.jsLib)
+        self.js = SYJavaScriptContext(jsLib: source.jsLib, sourceVariables: source.variable)
     }
 
     /// 按模板发起请求（支持 URL 模板变量与 `url,{json}` 请求体配置）。
@@ -330,5 +330,208 @@ actor SYLegadoEngine {
         let t = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty || t == "0" || t == "false" || t == "否" || t == "无" { return false }
         return true
+    }
+
+    // MARK: - 登录
+
+    /// 解析登录界面：兼容数组 / `{title,params,urls}` 对象两种形态；
+    /// `loginUi` 为 `<js>` / `@js:` 动态脚本（不依赖 java 桥）时先求值再解析。
+    func loadLoginUi() -> SYLoginUi? {
+        guard let raw = source.loginUi, !raw.isEmpty else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let script = extractLoginScript(trimmed) {
+            guard let js else { return nil }
+            guard let out = try? js.evaluate(script, result: nil, baseUrl: source.bookSourceUrl) else { return nil }
+            if let jsonText = jsonText(from: out) {
+                return SYLoginUiParser.parse(jsonText)
+            }
+            return nil
+        }
+        return SYLoginUiParser.parse(trimmed)
+    }
+
+    /// 执行登录并校验结果。
+    /// - Parameters:
+    ///   - formValues: 登录表单值（用户名/密码等），用于填充 `{{key}}` 模板或 POST 表单体。
+    ///   - urlAction: 对象形态 loginUi 中选中的提交目标；为空时使用书源 loginUrl。
+    func login(formValues: [String: String] = [:], urlAction: SYLoginUrlAction? = nil) async throws -> SYLoginResult {
+        let rawTarget = (urlAction?.url ?? source.loginUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawTarget.isEmpty else {
+            return SYLoginResult(success: false, message: "书源未配置登录地址（loginUrl）", checked: false)
+        }
+
+        // JS 形态登录：注入登录信息后执行。ShuYue 无 java 桥，依赖 java 的书源会明确失败。
+        if let script = extractLoginScript(rawTarget) {
+            return try executeLoginJS(script, formValues: formValues)
+        }
+
+        // URL 形态登录：模板填充 + 表单提交（Cookie 经 HTTPCookieStorage.shared 自动持久化）。
+        let responseText = try await executeURLLogin(target: rawTarget, formValues: formValues, actionMethod: urlAction?.method)
+
+        // loginCheckJs 校验：以登录响应文本为 result 执行，非空返回值视为已登录。
+        return evaluateLoginCheck(responseText: responseText)
+    }
+
+    // MARK: 登录实现
+
+    private func executeURLLogin(target: String, formValues: [String: String], actionMethod: String?) async throws -> String {
+        let resolved = resolveTemplate(target, vars: formValues)
+        var method = resolved.method
+        var body = resolved.body
+
+        // 无占位符且无 body 配置但有表单字段时，转 POST 表单提交（application/x-www-form-urlencoded）。
+        if method == "GET", body == nil, !target.contains("{{"), !formValues.isEmpty {
+            method = actionMethod?.uppercased() ?? "POST"
+            if method == "POST" {
+                let encoded = formValues.map { key, value in
+                    let ek = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? key
+                    let ev = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+                    return "\(ek)=\(ev)"
+                }.joined(separator: "&")
+                body = encoded
+            }
+        }
+
+        // 登录请求一律走 Cookie jar：Set-Cookie 由 HTTPCookieStorage.shared 自动保存，
+        // 后续书源请求在「启用 Cookie」开启时自动携带。
+        var loginClient = client
+        loginClient.useCookieJar = true
+
+        var requestHeaders = loginHeaders(formValues: formValues)
+        if method == "POST", body != nil {
+            requestHeaders["Content-Type"] = "application/x-www-form-urlencoded"
+        }
+        let result = try await loginClient.request(
+            url: resolved.url,
+            method: method,
+            headers: requestHeaders,
+            body: body?.data(using: .utf8)
+        )
+        return SYTextDecoding.text(from: result.data, response: result.response)
+    }
+
+    private func executeLoginJS(_ script: String, formValues: [String: String]) throws -> SYLoginResult {
+        guard let js else {
+            return SYLoginResult(success: false, message: "JS 引擎不可用", checked: false)
+        }
+        // 注入登录信息到全局 loginInfo（Legado 源常用 source.getLoginInfo() 读取）。
+        let infoExpr = SYJavaScriptContext.jsValueLiteral(formValues) ?? "{}"
+        _ = try? js.evaluate("var loginInfo = \(infoExpr);", result: nil, baseUrl: source.bookSourceUrl)
+        let wrapped = """
+        \(script)
+        if (typeof login === 'function') {
+            login.apply(this);
+        } else {
+            throw 'Function login not implements!!!';
+        }
+        """
+        do {
+            _ = try js.evaluate(wrapped, result: nil, baseUrl: source.bookSourceUrl)
+            return SYLoginResult(success: true, message: "登录脚本已执行；请确认书源已启用「启用 Cookie」以持久化会话", checked: false)
+        } catch {
+            let msg = error.localizedDescription
+            let lower = msg.lowercased()
+            if lower.contains("java") || lower.contains("can't find variable") || lower.contains("login") {
+                return SYLoginResult(
+                    success: false,
+                    message: "此书源采用 JS 登录脚本且依赖 java 桥，当前版本仅支持 URL 型登录",
+                    checked: false
+                )
+            }
+            return SYLoginResult(success: false, message: "登录脚本执行失败：\(msg)", checked: false)
+        }
+    }
+
+    private func evaluateLoginCheck(responseText: String) -> SYLoginResult {
+        let raw = (source.loginCheckJs ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty, let js else {
+            return SYLoginResult(success: true, message: "登录成功", checked: false)
+        }
+        let script = extractCheckScript(raw)
+        do {
+            let output = try js.evaluate(script, result: responseText as NSString, baseUrl: source.bookSourceUrl)
+            if let boolean = output as? Bool {
+                return boolean
+                    ? SYLoginResult(success: true, message: "登录成功，校验已通过", checked: true)
+                    : SYLoginResult(success: false, message: "登录校验未通过（loginCheckJs 返回 false）", checked: true)
+            }
+            if let text = output as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let lower = trimmed.lowercased()
+                if trimmed.isEmpty || lower == "false" || lower == "0" || lower == "null" || lower == "undefined" {
+                    return SYLoginResult(success: false, message: "登录校验未通过（loginCheckJs 返回空）", checked: true)
+                }
+                return SYLoginResult(success: true, message: "登录成功，校验已通过", checked: true)
+            }
+            return SYLoginResult(success: false, message: "登录校验未通过（loginCheckJs 未返回有效结果）", checked: true)
+        } catch {
+            let msg = error.localizedDescription
+            let lower = msg.lowercased()
+            if lower.contains("java") || lower.contains("can't find variable") {
+                return SYLoginResult(
+                    success: false,
+                    message: "登录校验脚本依赖 java 桥，无法执行 loginCheckJs",
+                    checked: true
+                )
+            }
+            return SYLoginResult(success: false, message: "登录校验脚本执行出错：\(msg)", checked: true)
+        }
+    }
+
+    /// 登录请求头：书源 header 模板代入表单值。
+    private func loginHeaders(formValues: [String: String]) -> [String: String] {
+        var out: [String: String] = [:]
+        for (k, v) in client.defaultHeaders {
+            out[k] = fillTemplate(v, vars: formValues)
+        }
+        return out
+    }
+
+    /// 提取脚本形态的登录地址 / 动态 loginUi：`@js:` 前缀、`<js>…</js>` 包裹，
+    /// 以及非 URL 且带函数定义/多行的纯脚本启发式。
+    private func extractLoginScript(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("@js:") { return String(trimmed.dropFirst(4)) }
+        if trimmed.hasPrefix("<js>") {
+            if let end = trimmed.range(of: "</js>", options: .backwards) {
+                return String(trimmed[trimmed.index(trimmed.startIndex, offsetBy: 4)..<end.lowerBound])
+            }
+            return String(trimmed.dropFirst(4))
+        }
+        if !trimmed.hasPrefix("http://"), !trimmed.hasPrefix("https://"), !trimmed.hasPrefix("/") {
+            if trimmed.contains("function ") || trimmed.contains("\n") { return trimmed }
+        }
+        return nil
+    }
+
+    /// loginCheckJs 为纯脚本：剥掉 `@js:` / `js:` 前缀与 `<js>` 包裹后直接执行。
+    private func extractCheckScript(_ raw: String) -> String {
+        var t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.hasPrefix("@js:") { t = String(t.dropFirst(4)) }
+        else if t.hasPrefix("js:") { t = String(t.dropFirst(3)) }
+        if t.hasPrefix("<js>"), let end = t.range(of: "</js>", options: .backwards) {
+            t = String(t[t.index(t.startIndex, offsetBy: 4)..<end.lowerBound])
+        }
+        return t
+    }
+
+    /// 动态 loginUi JS 的求值结果转 JSON 文本（对象/数组/字符串均可）。
+    private func jsonText(from value: Any?) -> String? {
+        switch value {
+        case let text as String:
+            return text
+        case let dict as [String: Any]:
+            if let data = try? JSONSerialization.data(withJSONObject: dict) {
+                return String(data: data, encoding: .utf8)
+            }
+            return nil
+        case let array as [Any]:
+            if let data = try? JSONSerialization.data(withJSONObject: array) {
+                return String(data: data, encoding: .utf8)
+            }
+            return nil
+        default:
+            return nil
+        }
     }
 }

@@ -15,6 +15,18 @@ final class SYAppState: ObservableObject {
     @Published private(set) var history: [SYHistoryEntry] = []
     @Published var settings = SYReaderSettings()
 
+    // 分组展示
+    /// 置顶 / 置底记录（bookSourceUrl -> 记录）。
+    @Published private(set) var pinRecords: [String: SYSourcePinRecord] = [:]
+    /// 折叠中的分组 id（其余默认展开）。
+    @Published private(set) var collapsedGroupIDs: Set<String> = []
+    /// 是否按分组折叠展示（关闭则回到平铺列表）。
+    @Published var groupByList = true
+
+    // 校验
+    /// 实跑校验后的行内健康状态（bookSourceUrl -> 摘要），仅在完整校验后写入。
+    @Published private(set) var healthBySource: [String: SYSourceValidationSummary] = [:]
+
     private let engineCache = SYEngineCache()
 
     init() {
@@ -44,12 +56,103 @@ final class SYAppState: ObservableObject {
         shelf = SYLibraryPersistence.load([SYBookshelfItem].self, key: "shelf") ?? []
         history = SYLibraryPersistence.load([SYHistoryEntry].self, key: "history") ?? []
         settings = SYLibraryPersistence.load(SYReaderSettings.self, key: "settings") ?? SYReaderSettings()
+        pinRecords = SYLibraryPersistence.load([String: SYSourcePinRecord].self, key: "sourcePins") ?? [:]
+        collapsedGroupIDs = SYLibraryPersistence.load(Set<String>.self, key: "collapsedGroups") ?? []
+        if let grouped = SYLibraryPersistence.load(Bool.self, key: "groupByList") {
+            groupByList = grouped
+        }
     }
 
     private func persistSources() { SYLibraryPersistence.save(sources, key: "sources") }
     private func persistShelf() { SYLibraryPersistence.save(shelf, key: "shelf") }
     private func persistHistory() { SYLibraryPersistence.save(history, key: "history") }
     func persistSettings() { SYLibraryPersistence.save(settings, key: "settings") }
+    private func persistPins() { SYLibraryPersistence.save(pinRecords, key: "sourcePins") }
+    private func persistGroupUI() { SYLibraryPersistence.save(groupByList, key: "groupByList") }
+
+    // MARK: - 分组
+
+    /// 按分组小节视图数据（置顶 -> 普通分组 -> 默认分组 -> 置底）。
+    var groupedSections: [SYSourceGroupSection] {
+        SYBookSourceGrouping.sections(sources: sources, pinRecords: pinRecords)
+    }
+
+    func setGroupByList(_ value: Bool) {
+        groupByList = value
+        persistGroupUI()
+    }
+
+    func toggleGroupCollapsed(_ groupID: String) {
+        if collapsedGroupIDs.contains(groupID) {
+            collapsedGroupIDs.remove(groupID)
+        } else {
+            collapsedGroupIDs.insert(groupID)
+        }
+        SYLibraryPersistence.save(collapsedGroupIDs, key: "collapsedGroups")
+    }
+
+    func isGroupCollapsed(_ groupID: String) -> Bool {
+        collapsedGroupIDs.contains(groupID)
+    }
+
+    /// 置顶：记录 pin 并持久化（不改源数组顺序，由 groupedSections 按 pin 分组展示）。
+    func pinToTop(_ source: SYBookSource) {
+        pinRecords[source.bookSourceUrl] = SYSourcePinRecord(position: .top, pinnedAt: Date())
+        persistPins()
+    }
+
+    /// 置底。
+    func pinToBottom(_ source: SYBookSource) {
+        pinRecords[source.bookSourceUrl] = SYSourcePinRecord(position: .bottom, pinnedAt: Date())
+        persistPins()
+    }
+
+    /// 取消置顶 / 置底。
+    func unpin(_ source: SYBookSource) {
+        pinRecords[source.bookSourceUrl] = nil
+        persistPins()
+    }
+
+    func pinRecord(for source: SYBookSource) -> SYSourcePinRecord? {
+        pinRecords[source.bookSourceUrl]
+    }
+
+    /// 重命名 / 移动分组：把一组来源的 bookSourceGroup 设为新值；空值清除分组（回到默认分组）。
+    func setGroup(_ group: String, for sourcesToMove: [SYBookSource]) {
+        let trimmed = group.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ids = Set(sourcesToMove.map(\.bookSourceUrl))
+        guard !ids.isEmpty else { return }
+        var changed = false
+        for idx in sources.indices where ids.contains(sources[idx].bookSourceUrl) {
+            let newGroup = trimmed.isEmpty ? nil : trimmed
+            if sources[idx].bookSourceGroup != newGroup {
+                sources[idx].bookSourceGroup = newGroup
+                changed = true
+            }
+        }
+        if changed { persistSources() }
+    }
+
+    /// 每组数量（供「移动到分组」「按域名分组」清单使用）。
+    func groupCounts(excluding excluded: String = "") -> [(name: String, count: Int)] {
+        SYBookSourceGrouping.groupCounts(sources: sources, excluding: excluded)
+    }
+
+    /// 按域名分组：每个源的 bookSourceGroup 改为其 URL 主机名。返回改动的源数量。
+    @discardableResult
+    func groupByDomain() -> Int {
+        var changed = 0
+        for idx in sources.indices {
+            let domain = SYBookSourceGrouping.domain(of: sources[idx].bookSourceUrl)
+            let newGroup = domain.isEmpty ? nil : domain
+            if sources[idx].bookSourceGroup != newGroup {
+                sources[idx].bookSourceGroup = newGroup
+                changed += 1
+            }
+        }
+        if changed > 0 { persistSources() }
+        return changed
+    }
 
     // MARK: - 书源
 
@@ -77,7 +180,10 @@ final class SYAppState: ObservableObject {
                 continue
             }
             if let index = sources.firstIndex(where: { $0.bookSourceUrl == source.bookSourceUrl }) {
-                sources[index] = source
+                // 更新已存在的书源：保留本地自定义排序（与墨悦 manualDefaults 的 keepCustomOrder 一致）。
+                var merged = source
+                merged.customOrder = sources[index].customOrder
+                sources[index] = merged
                 updated += 1
             } else {
                 sources.append(source)
@@ -103,15 +209,90 @@ final class SYAppState: ObservableObject {
         }
     }
 
+    // MARK: 导入审查流程
+
+    /// 网络订阅地址解析（不写库），供导入确认清单先行展示。
+    func parseRemote(urlString: String) async -> Result<[SYBookSource], String> {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), url.scheme != nil else {
+            return .failure("地址无效，请填写完整的 http(s) 链接。")
+        }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let text = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+            let parsed = SYBookSourceStore.parse(text)
+            guard !parsed.isEmpty else {
+                return .failure("未解析到任何书源，请确认是标准 Legado 书源 JSON。")
+            }
+            return .success(parsed)
+        } catch {
+            return .failure("网络导入失败：\(error.localizedDescription)")
+        }
+    }
+
+    /// 把已解析结果构建成导入确认计划（不写库）。库的 lastUpdateTime 快照一次，
+    /// 供条目标记 新增 / 更新 / 已有。
+    func importPlan(from parsed: [SYBookSource]) -> SYImportPlan {
+        let clocks = Dictionary(
+            uniqueKeysWithValues: sources.map { ($0.bookSourceUrl, $0.lastUpdateTime ?? 0) }
+        )
+        return SYImportPlan(incoming: parsed) { clocks[$0] }
+    }
+
+    /// 确认导入：把计划中勾选的行按选项合并后写入本地库。
+    @discardableResult
+    func confirmImport(_ plan: SYImportPlan, options: SYImportOptions) -> SYImportSummary {
+        let selected = plan.selectedSources
+        guard !selected.isEmpty else {
+            return .failure("未选择任何书源。")
+        }
+        var added = 0
+        var updated = 0
+        var issues: [String] = []
+        for source in selected {
+            guard !source.bookSourceUrl.isEmpty else {
+                issues.append("跳过缺少 bookSourceUrl 的条目：\(source.bookSourceName)")
+                continue
+            }
+            let merged = options.merged(incoming: source, local: source(url: source.bookSourceUrl))
+            if let index = sources.firstIndex(where: { $0.bookSourceUrl == merged.bookSourceUrl }) {
+                sources[index] = merged
+                updated += 1
+            } else {
+                sources.append(merged)
+                added += 1
+            }
+        }
+        persistSources()
+        return SYImportSummary(added: added, updated: updated, issues: issues)
+    }
+
     func toggleSource(_ source: SYBookSource) {
         guard let index = sources.firstIndex(where: { $0.bookSourceUrl == source.bookSourceUrl }) else { return }
         sources[index].enabled.toggle()
         persistSources()
     }
 
+    /// 保存规则编辑器写回的书源：同 URL 原地替换（保持顺序），否则按新书源追加。
+    /// 规则可能已变化，旧实跑校验结论与缓存引擎（携带旧规则与旧源变量）一并失效。
+    func updateSource(_ updated: SYBookSource) {
+        if let index = sources.firstIndex(where: { $0.bookSourceUrl == updated.bookSourceUrl }) {
+            sources[index] = updated
+        } else {
+            sources.append(updated)
+        }
+        healthBySource[updated.bookSourceUrl] = nil
+        let url = updated.bookSourceUrl
+        Task { await engineCache.dropEngine(for: url) }
+        persistSources()
+    }
+
     func deleteSource(_ source: SYBookSource) {
         sources.removeAll { $0.bookSourceUrl == source.bookSourceUrl }
+        pinRecords[source.bookSourceUrl] = nil
+        healthBySource[source.bookSourceUrl] = nil
         persistSources()
+        persistPins()
     }
 
     func removeAllSources() {
@@ -125,6 +306,11 @@ final class SYAppState: ObservableObject {
 
     func validate(_ source: SYBookSource) -> [String] {
         SYBookSourceStore.validate(source)
+    }
+
+    /// 记录一次完整实跑校验的行内健康结论。
+    func recordHealth(_ summary: SYSourceValidationSummary, for url: String) {
+        healthBySource[url] = summary
     }
 
     // MARK: - 引擎
@@ -222,6 +408,21 @@ final class SYAppState: ObservableObject {
             text += "\n" + result.content
         }
         return text
+    }
+
+    // MARK: - 登录
+
+    /// 解析书源登录界面（兼容数组 / `{title,params,urls}` 与动态 JS 形态）。
+    func loadLoginUi(for source: SYBookSource) async -> SYLoginUi? {
+        let engine = await engine(for: source)
+        return await engine.loadLoginUi()
+    }
+
+    /// 执行书源登录：表单值填充 loginUrl → Cookie 自动保存 → loginCheckJs 校验。
+    /// `urlAction` 为对象形态 loginUi 中选中的提交目标；为空时使用书源 loginUrl。
+    func login(source: SYBookSource, formValues: [String: String], urlAction: SYLoginUrlAction? = nil) async throws -> SYLoginResult {
+        let engine = await engine(for: source)
+        return try await engine.login(formValues: formValues, urlAction: urlAction)
     }
 
     // MARK: - 书架

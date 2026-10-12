@@ -33,3 +33,6 @@ Package.resolved
 *.log
 .idea/
 .vscode/
+
+# Python 脚本缓存
+__pycache__/
