@@ -7,6 +7,8 @@ actor SYLegadoEngine {
     let source: SYBookSource
     private var client: SYNetworkClient
     private var js: SYJavaScriptContext?
+    /// 书源并发率限制（concurrentRate > 0 时生效）：同一书源同时进行的请求数上限。
+    private let limiter: SYConcurrencyLimiter?
 
     init(source: SYBookSource, session: URLSession? = nil) {
         self.source = source
@@ -19,18 +21,36 @@ actor SYLegadoEngine {
         network.useCookieJar = source.enabledCookieJar
         self.client = network
         self.js = SYJavaScriptContext(jsLib: source.jsLib, sourceVariables: source.variable)
+        self.limiter = source.concurrentRateLimit.map { SYConcurrencyLimiter(count: $0) }
+    }
+
+    /// 受限并发执行：同一书源同时最多 concurrentRate 个网络请求；
+    /// 并发率为 0 / 空 时不限流。
+    private func withRateLimit<T>(_ operation: () async throws -> T) async throws -> T {
+        guard let limiter else { return try await operation() }
+        await limiter.acquire()
+        do {
+            let value = try await operation()
+            await limiter.release()
+            return value
+        } catch {
+            await limiter.release()
+            throw error
+        }
     }
 
     /// 按模板发起请求（支持 URL 模板变量与 `url,{json}` 请求体配置）。
     private func requestTemplate(_ template: String, vars: [String: String], debug: SYDebugSink? = nil) async throws -> (SYHTTPResult, String) {
         let (urlText, method, body) = resolveTemplate(template, vars: vars)
-        let result = try await client.request(
-            url: urlText,
-            method: method,
-            headers: headerVars(vars),
-            body: body?.data(using: .utf8),
-            debug: debug
-        )
+        let result = try await withRateLimit {
+            try await client.request(
+                url: urlText,
+                method: method,
+                headers: headerVars(vars),
+                body: body?.data(using: .utf8),
+                debug: debug
+            )
+        }
         return (result, urlText)
     }
 
@@ -416,12 +436,14 @@ actor SYLegadoEngine {
         if method == "POST", body != nil {
             requestHeaders["Content-Type"] = "application/x-www-form-urlencoded"
         }
-        let result = try await loginClient.request(
-            url: resolved.url,
-            method: method,
-            headers: requestHeaders,
-            body: body?.data(using: .utf8)
-        )
+        let result = try await withRateLimit {
+            try await loginClient.request(
+                url: resolved.url,
+                method: method,
+                headers: requestHeaders,
+                body: body?.data(using: .utf8)
+            )
+        }
         return SYTextDecoding.text(from: result.data, response: result.response)
     }
 

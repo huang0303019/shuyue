@@ -229,3 +229,14 @@ struct SYBookSource: Codable, Identifiable, Equatable {
         return try? encoder.encode(self)
     }
 }
+
+// MARK: - 并发率
+
+extension SYBookSource {
+    /// 并发率数值：Legado 书源 `concurrentRate` 为字符串，`0` / 空 / 非数字表示不限制；
+    /// 大于 0 时作为同一书源同时进行的网络请求数上限。
+    var concurrentRateLimit: Int? {
+        guard let raw = concurrentRate, let value = Int(raw), value > 0 else { return nil }
+        return value
+    }
+}

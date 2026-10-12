@@ -38,6 +38,36 @@ struct SYRootShell: View {
         }
         .tint(SYPalette.accent)
         .environmentObject(state)
+        .onOpenURL { url in
+            _ = state.handleDeepLink(url)
+        }
+        .overlay(alignment: .bottom) {
+            if let notice = state.deepLinkNotice {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(SYPalette.accent)
+                    Text(notice)
+                        .font(SYFont.callout.weight(.medium))
+                        .foregroundStyle(SYPalette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, SYMetric.gapL)
+                .padding(.vertical, 10)
+                .background(SYPalette.surface, in: Capsule())
+                .overlay(
+                    Capsule().stroke(SYPalette.border, lineWidth: 0.8)
+                )
+                .shadow(color: SYPalette.ink.opacity(0.10), radius: 14, y: 5)
+                .padding(.bottom, 20)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .task(id: state.deepLinkNotice) {
+            guard state.deepLinkNotice != nil else { return }
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            withAnimation(.easeOut(duration: 0.25)) { state.deepLinkNotice = nil }
+        }
     }
 
     @ViewBuilder

@@ -236,6 +236,65 @@ final class SYAppState: ObservableObject {
         }
     }
 
+    // MARK: - 深链导入（shuyue://）
+
+    /// 本次启动以来深链 / 分享扩展累计导入结果（分享扩展一次可回调多条，逐条归并展示）。
+    @Published private(set) var deepLinkImported = 0
+    @Published private(set) var deepLinkUpdated = 0
+    @Published private(set) var deepLinkIssues: [String] = []
+    /// 深链导入结果提示，由外壳在底部 toast 展示；置空即关闭。
+    @Published var deepLinkNotice: String?
+
+    /// 处理 `shuyue://` 深链：解析后导入书源并跳到书源页。返回 true 表示已消费。
+    @discardableResult
+    func handleDeepLink(_ url: URL) -> Bool {
+        guard let action = SYDeepLinkParser.parse(url) else { return false }
+        switch action {
+        case .openSources:
+            present(.sources)
+        case .importText(let text):
+            importFromDeepLink(text: text)
+        case .importRemote(let remote):
+            let notice = deepLinkNotice
+            deepLinkNotice = notice ?? "正在导入远程书源…"
+            Task { await importFromDeepLink(remote: remote) }
+        }
+        return true
+    }
+
+    private func importFromDeepLink(text: String) {
+        let summary = importSources(text: text)
+        accumulate(summary)
+        present(.sources)
+        deepLinkNotice = deepLinkSummaryText()
+    }
+
+    private func importFromDeepLink(remote urlString: String) async {
+        let summary = await importSources(remote: urlString)
+        accumulate(summary)
+        present(.sources)
+        deepLinkNotice = deepLinkSummaryText()
+    }
+
+    private func accumulate(_ summary: SYImportSummary) {
+        if summary.isFailure {
+            deepLinkIssues.append(summary.failureMessage ?? "导入失败")
+        } else {
+            deepLinkImported += summary.added
+            deepLinkUpdated += summary.updated
+            deepLinkIssues.append(contentsOf: summary.issues)
+        }
+    }
+
+    private func deepLinkSummaryText() -> String {
+        var parts: [String] = []
+        if deepLinkImported > 0 { parts.append("新增 \(deepLinkImported) 个书源") }
+        if deepLinkUpdated > 0 { parts.append("更新 \(deepLinkUpdated) 个书源") }
+        if parts.isEmpty { parts.append("没有可导入的书源") }
+        if !deepLinkIssues.isEmpty { parts.append(deepLinkIssues.joined(separator: "；")) }
+        return parts.joined(separator: "，")
+    }
+
     // MARK: 导入审查流程
 
     /// 网络订阅地址解析（不写库），供导入确认清单先行展示。

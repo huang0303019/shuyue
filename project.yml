@@ -25,6 +25,9 @@ targets:
       - path: Features
       - path: Resources
       - path: Engine
+    dependencies:
+      - target: ShuYueShare
+        embed: true
     settings:
       base:
         PRODUCT_NAME: ShuYue
@@ -41,6 +44,25 @@ targets:
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         ENABLE_PREVIEWS: YES
+
+  ShuYueShare:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: ShareExtension
+    settings:
+      base:
+        PRODUCT_NAME: ShuYueShare
+        PRODUCT_BUNDLE_IDENTIFIER: com.zhong228.shuyue.share
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: ShareExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_EMIT_LOC_STRINGS: YES
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
 
   EngineTests:
     type: bundle.unit-test
