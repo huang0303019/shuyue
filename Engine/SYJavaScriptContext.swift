@@ -87,9 +87,12 @@ final class SYJavaScriptContext: @unchecked Sendable {
     }
 
     /// 把 Swift 字符串编码成 JS 字符串字面量（JSON 字符串字面量为合法 JS 字面量）。
+    /// 注意：顶层是 String 时不能用 `JSONSerialization.data(withJSONObject:)`（会因非法顶层类型抛 NSException），
+    /// 必须改用 JSONEncoder 编码顶层片段。
     private static func jsStringLiteral(_ string: String) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: string) else { return nil }
-        return String(data: data, encoding: .utf8)
+        guard let data = try? JSONEncoder().encode(string),
+              let json = String(data: data, encoding: .utf8) else { return nil }
+        return json
     }
 
     // MARK: - 内建函数兜底

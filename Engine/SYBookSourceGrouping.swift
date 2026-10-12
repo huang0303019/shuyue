@@ -125,7 +125,9 @@ enum SYBookSourceGrouping {
                 kind: .pinnedTop
             ))
         }
-        for name in byNormalGroup.keys.sorted() {
+        for name in byNormalGroup.keys.sorted(by: {
+            $0.localizedStandardCompare($1) == .orderedAscending
+        }) {
             let urls = byNormalGroup[name]!
             result.append(SYSourceGroupSection(
                 id: "group:\(name)",
