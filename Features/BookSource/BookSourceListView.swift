@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 书源管理 —— 统计、启停、导入、校验与删除 Legado 书源。
 @MainActor
@@ -15,13 +16,19 @@ struct BookSourceListView: View {
     @State private var editingVariable: SYBookSource?
     @State private var loggingInSource: SYBookSource?
     @State private var debuggingSource: SYBookSource?
+    @State private var showGroupByDomainConfirm = false
+    @State private var groupNaming: PendingGroupNaming?
+    @State private var groupNameText = ""
+    @State private var pendingMergeGroup: SYSourceGroupSection?
+    @State private var pendingDeleteGroup: SYSourceGroupSection?
+    @State private var notice: String?
 
     var body: some View {
         SYScreen(
             title: "书源",
             subtitle: "共 \(state.sources.count) 个 · 启用 \(state.enabledSources.count)",
             onMenu: onMenu,
-            trailing: { importButton }
+            trailing: { trailingActions }
         ) {
             if state.sources.isEmpty {
                 SYEmptyState(
@@ -97,6 +104,132 @@ struct BookSourceListView: View {
             }
             Button("取消", role: .cancel) { pendingDelete = nil }
         }
+        .sheet(item: $pendingMergeGroup) { group in
+            GroupMoveSheet(
+                title: "合并到其他分组",
+                subtitle: "\(group.name) · \(group.sourceIDs.count) 个书源",
+                currentGroup: group.name == SYBookSourceGrouping.defaultGroupName ? "" : group.name,
+                allowsNewGroup: false,
+                excludedGroups: [group.name]
+            ) { target in
+                mergeGroup(group, to: target)
+            }
+            .environmentObject(state)
+        }
+        .alert("按域名分组", isPresented: $showGroupByDomainConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("确定") {
+                let changed = state.groupByDomain()
+                showNotice(changed > 0
+                    ? "已按域名分组 \(changed) 个书源"
+                    : "书源已全部按域名分组")
+            }
+        } message: {
+            Text("按域名分组将覆盖现有分组，确定继续？")
+        }
+        .alert(
+            groupNaming?.title ?? "分组名称",
+            isPresented: Binding(get: { groupNaming != nil }, set: { if !$0 { groupNaming = nil } })
+        ) {
+            TextField("分组名称", text: $groupNameText)
+            Button("取消", role: .cancel) { groupNaming = nil }
+            Button("确定") { commitGroupNaming() }
+        } message: {
+            if let pending = groupNaming {
+                Text(pending.subtitle)
+            }
+        }
+        .alert(
+            "删除分组",
+            isPresented: Binding(get: { pendingDeleteGroup != nil }, set: { if !$0 { pendingDeleteGroup = nil } })
+        ) {
+            Button("取消", role: .cancel) { pendingDeleteGroup = nil }
+            Button("删除", role: .destructive) {
+                if let group = pendingDeleteGroup { deleteGroup(group) }
+                pendingDeleteGroup = nil
+            }
+        } message: {
+            if let group = pendingDeleteGroup {
+                Text("将删除分组「\(group.name)」及其中的 \(group.sourceIDs.count) 个书源，该操作不可恢复。")
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let notice {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(SYPalette.accent)
+                    Text(notice)
+                        .font(SYFont.callout.weight(.medium))
+                        .foregroundStyle(SYPalette.ink)
+                }
+                .padding(.horizontal, SYMetric.gapL)
+                .padding(.vertical, 10)
+                .background(SYPalette.surface, in: Capsule())
+                .overlay(
+                    Capsule().stroke(SYPalette.border, lineWidth: 0.8)
+                )
+                .shadow(color: SYPalette.ink.opacity(0.10), radius: 14, y: 5)
+                .padding(.bottom, 20)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .task(id: notice) {
+            guard notice != nil else { return }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            withAnimation(.easeOut(duration: 0.25)) { notice = nil }
+        }
+    }
+
+    // MARK: - 分组管理
+
+    private func showNotice(_ text: String) {
+        withAnimation(.easeOut(duration: 0.2)) { notice = text }
+    }
+
+    /// 重命名分组：默认分组起始为空（无真实 bookSourceGroup），输入新名称即为其书源落组。
+    private func beginRenameGroup(_ group: SYSourceGroupSection) {
+        groupNameText = group.name == SYBookSourceGrouping.defaultGroupName ? "" : group.name
+        groupNaming = PendingGroupNaming(
+            title: "重命名分组",
+            subtitle: "\(group.name) · \(group.sourceIDs.count) 个书源",
+            sourceIDs: group.sourceIDs,
+            currentName: group.name
+        )
+    }
+
+    private func commitGroupNaming() {
+        guard let pending = groupNaming else { return }
+        groupNaming = nil
+        let trimmed = groupNameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != pending.currentName else { return }
+        let urls = Set(pending.sourceIDs)
+        let sourcesToMove = state.sources.filter { urls.contains($0.bookSourceUrl) }
+        let newGroup = trimmed == SYBookSourceGrouping.defaultGroupName ? "" : trimmed
+        state.setGroup(newGroup, for: sourcesToMove)
+    }
+
+    /// 合并分组到目标分组；目标为空或缺省名时清除 bookSourceGroup 回到默认分组。
+    private func mergeGroup(_ group: SYSourceGroupSection, to target: String) {
+        let urls = Set(group.sourceIDs)
+        let sourcesToMove = state.sources.filter { urls.contains($0.bookSourceUrl) }
+        let targetGroup = target == SYBookSourceGrouping.defaultGroupName ? "" : target
+        state.setGroup(targetGroup, for: sourcesToMove)
+        let displayTarget = target.isEmpty ? SYBookSourceGrouping.defaultGroupName : target
+        showNotice("已合并「\(group.name)」到「\(displayTarget)」")
+    }
+
+    private func deleteGroup(_ group: SYSourceGroupSection) {
+        let urls = Set(group.sourceIDs)
+        let sourcesToDelete = state.sources.filter { urls.contains($0.bookSourceUrl) }
+        state.deleteSources(sourcesToDelete)
+        showNotice("已删除分组「\(group.name)」及 \(sourcesToDelete.count) 个书源")
+    }
+
+    private func copyGroupJSON(_ group: SYSourceGroupSection) {
+        let json = state.exportSourcesText(ids: group.sourceIDs)
+        UIPasteboard.general.string = json
+        showNotice("已复制 \(group.sourceIDs.count) 个书源到剪贴板")
     }
 
     /// 分组 / 平铺切换胶囊。
@@ -190,6 +323,50 @@ struct BookSourceListView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .contextMenu {
+                if section.kind == .normal || section.kind == .default {
+                    Button {
+                        beginRenameGroup(section)
+                    } label: {
+                        Label("重命名分组", systemImage: "pencil")
+                    }
+
+                    Button {
+                        pendingMergeGroup = section
+                    } label: {
+                        Label("合并到其他分组", systemImage: "arrow.triangle.merge")
+                    }
+
+                    Button {
+                        state.setSourcesEnabled(Array(section.sourceIDs), enabled: true)
+                        showNotice("已启用「\(section.name)」全部书源")
+                    } label: {
+                        Label("启用组内全部", systemImage: "checkmark.circle")
+                    }
+
+                    Button {
+                        state.setSourcesEnabled(Array(section.sourceIDs), enabled: false)
+                        showNotice("已停用「\(section.name)」全部书源")
+                    } label: {
+                        Label("停用组内全部", systemImage: "circle.slash")
+                    }
+
+                    Button {
+                        copyGroupJSON(section)
+                    } label: {
+                        Label("复制分组 JSON", systemImage: "doc.on.doc")
+                    }
+
+                    if section.kind == .normal {
+                        Divider()
+                        Button(role: .destructive) {
+                            pendingDeleteGroup = section
+                        } label: {
+                            Label("删除分组", systemImage: "trash")
+                        }
+                    }
+                }
+            }
             .padding(.horizontal, SYMetric.gapM)
             .padding(.vertical, 6)
 
@@ -215,6 +392,33 @@ struct BookSourceListView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("导入书源")
+    }
+
+    /// 顶栏右侧动作：导入 + 更多（按域名分组 / 复制全部）。
+    private var trailingActions: some View {
+        HStack(spacing: SYMetric.gapS) {
+            importButton
+            Menu {
+                Button {
+                    showGroupByDomainConfirm = true
+                } label: {
+                    Label("按域名分组", systemImage: "globe")
+                }
+                Button {
+                    UIPasteboard.general.string = state.exportSourcesText()
+                    showNotice("已复制全部 \(state.sources.count) 个书源到剪贴板")
+                } label: {
+                    Label("复制全部书源", systemImage: "doc.on.doc")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(SYPalette.ink)
+                    .frame(width: 38, height: 38)
+                    .background(SYPalette.surfaceAlt, in: Circle())
+            }
+            .accessibilityLabel("更多")
+        }
     }
 
     private func sourceRow(_ source: SYBookSource) -> some View {
@@ -363,32 +567,67 @@ struct BookSourceListView: View {
     }
 }
 
-// MARK: - 移动到分组
+// MARK: - 移动到分组 / 合并分组
 
 @MainActor
 private struct GroupMoveSheet: View {
-    let source: SYBookSource
+    let title: String
+    let subtitle: String?
+    let currentGroup: String?
+    let allowsNewGroup: Bool
+    let excludedGroups: Set<String>
     let onSelect: (String) -> Void
 
     @EnvironmentObject private var state: SYAppState
     @Environment(\.dismiss) private var dismiss
     @State private var newGroupName = ""
 
+    /// 单书源移动分组（保留原有入口语义）。
+    init(source: SYBookSource, onSelect: @escaping (String) -> Void) {
+        self.init(
+            title: "移动到分组",
+            subtitle: source.bookSourceName,
+            currentGroup: source.bookSourceGroup,
+            allowsNewGroup: true,
+            excludedGroups: [],
+            onSelect: onSelect
+        )
+    }
+
+    init(
+        title: String,
+        subtitle: String?,
+        currentGroup: String?,
+        allowsNewGroup: Bool,
+        excludedGroups: Set<String> = [],
+        onSelect: @escaping (String) -> Void
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.currentGroup = currentGroup
+        self.allowsNewGroup = allowsNewGroup
+        self.excludedGroups = excludedGroups
+        self.onSelect = onSelect
+    }
+
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(SYFont.caption)
+                            .foregroundStyle(SYPalette.inkSecondary)
+                    }
+                }
+
                 Section("现有分组") {
-                    Button {
-                        onSelect("")
-                        dismiss()
-                    } label: {
-                        HStack {
+                    if !(currentGroup ?? "").isEmpty {
+                        Button {
+                            onSelect("")
+                            dismiss()
+                        } label: {
                             Label("移出分组（默认分组）", systemImage: "tray")
-                            Spacer()
-                            if let group = source.bookSourceGroup, !group.isEmpty {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(SYPalette.accent)
-                            }
                         }
                     }
                     ForEach(existingGroups, id: \.self) { group in
@@ -399,7 +638,7 @@ private struct GroupMoveSheet: View {
                             HStack {
                                 Label(group, systemImage: "folder")
                                 Spacer()
-                                if source.bookSourceGroup == group {
+                                if currentGroup == group {
                                     Image(systemName: "checkmark")
                                         .foregroundStyle(SYPalette.accent)
                                 }
@@ -408,20 +647,22 @@ private struct GroupMoveSheet: View {
                     }
                 }
 
-                Section("新建分组") {
-                    TextField("分组名称", text: $newGroupName)
-                    Button {
-                        let name = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !name.isEmpty else { return }
-                        onSelect(name)
-                        dismiss()
-                    } label: {
-                        Label("创建并移动", systemImage: "plus.circle")
+                if allowsNewGroup {
+                    Section("新建分组") {
+                        TextField("分组名称", text: $newGroupName)
+                        Button {
+                            let name = newGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !name.isEmpty else { return }
+                            onSelect(name)
+                            dismiss()
+                        } label: {
+                            Label("创建并移动", systemImage: "plus.circle")
+                        }
+                        .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .disabled(newGroupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .navigationTitle("移动到分组")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -436,9 +677,18 @@ private struct GroupMoveSheet: View {
     private var existingGroups: [String] {
         state.groupCounts()
             .map { $0.name }
-            .filter { $0 != SYBookSourceGrouping.defaultGroupName }
+            .filter { $0 != SYBookSourceGrouping.defaultGroupName && !excludedGroups.contains($0) }
             .sorted()
     }
+}
+
+// MARK: - 重命名分组
+
+private struct PendingGroupNaming {
+    let title: String
+    let subtitle: String
+    let sourceIDs: [String]
+    let currentName: String
 }
 
 // MARK: - 导入面板

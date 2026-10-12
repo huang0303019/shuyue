@@ -154,6 +154,33 @@ final class SYAppState: ObservableObject {
         return changed
     }
 
+    /// 批量删除书源（删除整个分组时使用），同时清除 pin 与行内健康结论。
+    func deleteSources(_ sourcesToDelete: [SYBookSource]) {
+        let urls = Set(sourcesToDelete.map(\.bookSourceUrl))
+        guard !urls.isEmpty else { return }
+        sources.removeAll { urls.contains($0.bookSourceUrl) }
+        for url in urls {
+            pinRecords[url] = nil
+            healthBySource[url] = nil
+        }
+        persistSources()
+        persistPins()
+    }
+
+    /// 整组启用 / 停用：按 bookSourceUrl 集合批量设置 enabled。
+    func setSourcesEnabled(_ urls: [String], enabled: Bool) {
+        let set = Set(urls)
+        guard !set.isEmpty else { return }
+        var changed = false
+        for idx in sources.indices where set.contains(sources[idx].bookSourceUrl) {
+            if sources[idx].enabled != enabled {
+                sources[idx].enabled = enabled
+                changed = true
+            }
+        }
+        if changed { persistSources() }
+    }
+
     // MARK: - 书源
 
     var enabledSources: [SYBookSource] { sources.filter { $0.enabled } }
@@ -302,6 +329,13 @@ final class SYAppState: ObservableObject {
 
     func exportSourcesText() -> String {
         SYBookSourceStore.serialize(sources)
+    }
+
+    /// 按指定 bookSourceUrl 子集导出 JSON（供「复制分组 JSON」使用）。
+    func exportSourcesText(ids: [String]) -> String {
+        let set = Set(ids)
+        guard !set.isEmpty else { return "[]" }
+        return SYBookSourceStore.serialize(sources.filter { set.contains($0.bookSourceUrl) })
     }
 
     func validate(_ source: SYBookSource) -> [String] {
