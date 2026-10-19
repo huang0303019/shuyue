@@ -65,7 +65,7 @@ struct SettingsView: View {
                         .rootTabTitleScrollAnchor()
 
                     // ── 界面语言 ──
-                    DSSettingsGroupCard(title: localized("界面语言"), footer: appLanguageFooter) {
+                    DSSettingsGroupCard(title: localized("界面语言"), footer: { Text(appLanguageFooter) }) {
                         DSSettingsCardRow(icon: "globe", title: localized("语言")) {
                             if let url = URL(string: UIApplication.openSettingsURLString) {
                                 openURL(url)

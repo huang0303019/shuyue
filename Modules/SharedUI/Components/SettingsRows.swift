@@ -292,10 +292,16 @@ struct DSSettingsCard: View {
 /// A grouped settings card: a section title above a rounded surface card whose rows
 /// sit on hairline dividers. The card vocabulary the rebuilt settings pages share
 /// (我的 → 设置, 视觉主题, 关于, 诊断) — an alternative to `List` sections.
-struct DSSettingsGroupCard<Content: View>: View {
+struct DSSettingsGroupCard<Footer: View, Content: View>: View {
     let title: String
-    var footer: String? = nil
+    @ViewBuilder let footer: Footer
     @ViewBuilder let content: Content
+
+    init(title: String, @ViewBuilder footer: () -> Footer = { EmptyView() }, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.footer = footer()
+        self.content = content()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
@@ -310,13 +316,11 @@ struct DSSettingsGroupCard<Content: View>: View {
                 .background(cardSurface)
                 .overlay(cardBorder)
 
-            if let footer {
-                Text(footer)
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, DSSpacing.sm)
-            }
+            footer
+                .font(DSFont.caption)
+                .foregroundStyle(DSColor.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, DSSpacing.sm)
         }
     }
 
