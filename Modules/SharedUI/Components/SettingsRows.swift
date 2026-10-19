@@ -289,6 +289,266 @@ struct DSSettingsCard: View {
     }
 }
 
+/// A grouped settings card: a section title above a rounded surface card whose rows
+/// sit on hairline dividers. The card vocabulary the rebuilt settings pages share
+/// (我的 → 设置, 视觉主题, 关于, 诊断) — an alternative to `List` sections.
+struct DSSettingsGroupCard<Content: View>: View {
+    let title: String
+    var footer: String? = nil
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DSSpacing.sm) {
+            Text(title)
+                .font(DSFont.subheadline.weight(.semibold))
+                .foregroundStyle(DSColor.textSecondary)
+                .padding(.horizontal, DSSpacing.sm)
+                .padding(.top, DSSpacing.xs)
+                .accessibilityAddTraits(.isHeader)
+
+            VStack(spacing: 0) { content }
+                .background(cardSurface)
+                .overlay(cardBorder)
+
+            if let footer {
+                Text(footer)
+                    .font(DSFont.caption)
+                    .foregroundStyle(DSColor.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, DSSpacing.sm)
+            }
+        }
+    }
+
+    private var cardSurface: some View {
+        RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous)
+            .fill(DSColor.surface)
+            .shadow(color: DSColor.shadow, radius: 3, x: 0, y: 1)
+    }
+
+    private var cardBorder: some View {
+        RoundedRectangle(cornerRadius: DSRadius.lg, style: .continuous)
+            .stroke(DSColor.separator.opacity(0.5), lineWidth: 0.5)
+    }
+}
+
+/// The hairline between two rows inside a `DSSettingsGroupCard`. The 50pt leading
+/// keeps it under the text, past the 30pt badge + its 8pt gap + 12pt padding.
+struct DSSettingsCardDivider: View {
+    var body: some View {
+        Divider()
+            .padding(.leading, 50)
+    }
+}
+
+/// Shared label for settings-card rows: badge, title, optional detail, a trailing
+/// value, and the chevron — or a lock for Pro-gated rows. Worn by both the button
+/// (sheet) and NavigationLink (push) flavours below.
+private struct SettingsCardRowLabel: View {
+    let icon: String
+    let title: String
+    let detail: String?
+    let value: String?
+    let isLocked: Bool
+
+    var body: some View {
+        HStack(spacing: DSSpacing.sm) {
+            DSIconBadge(
+                systemImage: icon,
+                gradient: DSBrandGradient.tint(for: icon),
+                side: 30,
+                iconSize: 16
+            )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(DSFont.body)
+                    .foregroundColor(DSColor.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                if let detail {
+                    Text(detail)
+                        .font(DSFont.caption)
+                        .foregroundColor(DSColor.textSecondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+
+            Spacer(minLength: DSSpacing.sm)
+
+            if let value {
+                Text(value)
+                    .font(DSFont.caption)
+                    .foregroundColor(DSColor.textSecondary)
+                    .lineLimit(1)
+            }
+
+            if isLocked {
+                Image(systemName: "lock.fill")
+                    .font(DSFont.caption)
+                    .foregroundColor(DSColor.textSecondary)
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(DSFont.caption.weight(.semibold))
+                    .foregroundColor(DSColor.textTertiary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, DSSpacing.md)
+        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+/// A tappable settings-card row: badge + title (+ detail/value) + chevron, opening
+/// a sheet or performing an action. The card answer to `DSSettingsCard` for the
+/// rebuilt single-column 我的 page.
+struct DSSettingsCardRow: View {
+    let icon: String
+    let title: String
+    let detail: String?
+    let value: String?
+    let isLocked: Bool
+    let action: () -> Void
+
+    init(
+        icon: String,
+        title: String,
+        detail: String? = nil,
+        value: String? = nil,
+        isLocked: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.icon = icon
+        self.title = title
+        self.detail = detail
+        self.value = value
+        self.isLocked = isLocked
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            SettingsCardRowLabel(
+                icon: icon,
+                title: title,
+                detail: detail,
+                value: value,
+                isLocked: isLocked
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(value ?? "")
+    }
+}
+
+/// A settings-card row that pushes a page — the NavigationLink flavour of
+/// `DSSettingsCardRow`, for rebuilds that still drill down inside an enclosing
+/// NavigationStack.
+struct DSSettingsCardNavRow<Destination: View>: View {
+    let icon: String
+    let title: String
+    let detail: String?
+    let value: String?
+    let isLocked: Bool
+    let destination: Destination
+
+    init(
+        icon: String,
+        title: String,
+        detail: String? = nil,
+        value: String? = nil,
+        isLocked: Bool = false,
+        @ViewBuilder destination: () -> Destination
+    ) {
+        self.icon = icon
+        self.title = title
+        self.detail = detail
+        self.value = value
+        self.isLocked = isLocked
+        self.destination = destination()
+    }
+
+    var body: some View {
+        NavigationLink {
+            destination
+        } label: {
+            SettingsCardRowLabel(
+                icon: icon,
+                title: title,
+                detail: detail,
+                value: value,
+                isLocked: isLocked
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(value ?? "")
+    }
+}
+
+/// A Toggle whose label is a settings row (badge + title), sized to the same
+/// 54pt rhythm as `DSSettingsCardRow` so a card of rows reads as one list.
+struct DSSettingsCardToggle: View {
+    let title: String
+    let systemImage: String
+    @Binding var isOn: Bool
+    var detail: String? = nil
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            HStack(spacing: DSSpacing.sm) {
+                SettingsRowLabel(title, systemImage: systemImage)
+                if let detail {
+                    Spacer(minLength: DSSpacing.sm)
+                    Text(detail)
+                        .font(DSFont.caption)
+                        .foregroundColor(DSColor.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(.horizontal, DSSpacing.md)
+        .frame(minHeight: 54)
+        .contentShape(Rectangle())
+        .accessibilityLabel(title)
+    }
+}
+
+/// A Picker whose label is a settings row (badge + title), sized to the same
+/// row rhythm as `DSSettingsCardRow`.
+struct DSSettingsCardPicker<SelectionValue: Hashable, Content: View>: View {
+    let title: String
+    let systemImage: String
+    @Binding var selection: SelectionValue
+    @ViewBuilder let content: Content
+
+    init(
+        title: String,
+        systemImage: String,
+        selection: Binding<SelectionValue>,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        self._selection = selection
+        self.content = content()
+    }
+
+    var body: some View {
+        Picker(selection: $selection) {
+            content
+        } label: {
+            SettingsRowLabel(title, systemImage: systemImage)
+        }
+        .pickerStyle(.menu)
+        .padding(.horizontal, DSSpacing.md)
+        .frame(minHeight: 54)
+        .contentShape(Rectangle())
+    }
+}
+
 #Preview {
     Form {
         Section {

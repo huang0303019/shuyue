@@ -18,9 +18,6 @@ struct SettingsView: View {
     @State private var showNetworkSettings = false
     @State private var showAISettings = false
     @State private var showAIPaywall = false
-    @State private var showAppearanceTheme = false
-    @State private var showDiagnostics = false
-    @State private var showAbout = false
     #if DEBUG
     @State private var autoOpenDiagnostics = false
     #endif
@@ -68,8 +65,8 @@ struct SettingsView: View {
                         .rootTabTitleScrollAnchor()
 
                     // ── 界面语言 ──
-                    profileGroup(title: localized("界面语言"), footer: appLanguageFooter) {
-                        DSSettingsCard(icon: "globe", title: localized("语言")) {
+                    DSSettingsGroupCard(title: localized("界面语言"), footer: appLanguageFooter) {
+                        DSSettingsCardRow(icon: "globe", title: localized("语言")) {
                             if let url = URL(string: UIApplication.openSettingsURLString) {
                                 openURL(url)
                             }
@@ -77,40 +74,75 @@ struct SettingsView: View {
                     }
 
                     // ── 外观与主题 ──
-                    profileGroup(title: localized("外观与主题")) {
-                        DSSettingsCard(
+                    DSSettingsGroupCard(title: localized("外观与主题")) {
+                        DSSettingsCardNavRow(
                             icon: "paintpalette.fill",
                             title: localized("视觉主题"),
-                            detail: appearanceThemeName
+                            value: appearanceThemeName
                         ) {
-                            showAppearanceTheme = true
+                            AppearanceThemeView()
                         }
                     }
 
                     // ── 数据与书源 ──
-                    profileGroup(title: localized("数据与书源")) {
-                        DSSettingsCard(icon: "books.vertical.fill", title: localized("书源库"), action: { showSourceList = true })
-                        DSSettingsCard(icon: "arrow.down.circle.fill", title: localized("离线缓存"), detail: "\(downloadedBooksCount) \(localized("本"))", action: { showDownloadManager = true })
-                        DSSettingsCard(icon: "network", title: localized("网络连接"), action: { showNetworkSettings = true })
-                        DSSettingsCard(icon: "arrow.triangle.2.circlepath.icloud", title: localized("云备份"), detail: localized("iCloud、WebDAV"), action: { showBackupSync = true })
-                        DSSettingsCard(icon: "externaldrive.fill", title: localized("存储清理"), action: { showCacheManagement = true })
-                        DSSettingsCard(icon: "wifi", title: localized("局域传书"), action: { showLanServer = true })
-                        DSSettingsCard(icon: "arrow.down.doc.fill", title: localized("导入阅读器数据"), action: { showLegadoMigration = true })
+                    DSSettingsGroupCard(title: localized("数据与书源")) {
+                        DSSettingsCardRow(icon: "books.vertical.fill", title: localized("书源库")) { showSourceList = true }
+                        DSSettingsCardDivider()
+                        DSSettingsCardRow(
+                            icon: "arrow.down.circle.fill",
+                            title: localized("离线缓存"),
+                            value: "\(downloadedBooksCount) \(localized("本"))"
+                        ) { showDownloadManager = true }
+                        DSSettingsCardDivider()
+                        DSSettingsCardRow(icon: "network", title: localized("网络连接")) { showNetworkSettings = true }
+                        DSSettingsCardDivider()
+                        DSSettingsCardRow(
+                            icon: "arrow.triangle.2.circlepath.icloud",
+                            title: localized("云备份"),
+                            detail: localized("iCloud、WebDAV")
+                        ) { showBackupSync = true }
+                        DSSettingsCardDivider()
+                        DSSettingsCardRow(icon: "externaldrive.fill", title: localized("存储清理")) { showCacheManagement = true }
+                        DSSettingsCardDivider()
+                        DSSettingsCardRow(icon: "wifi", title: localized("局域传书")) { showLanServer = true }
+                        DSSettingsCardDivider()
+                        DSSettingsCardRow(icon: "arrow.down.doc.fill", title: localized("导入阅读器数据")) { showLegadoMigration = true }
                     }
 
                     // ── 阅读与声音 ──
-                    profileGroup(title: localized("阅读与声音")) {
-                        DSSettingsCard(icon: "waveform", title: localized("听书引擎"), action: { showTTSSettings = true })
-                        DSSettingsCard(icon: "sparkles", title: localized("智能伴读"), detail: isAILocked ? localized("需要 Pro") : aiAssistantDetail, isLocked: isAILocked, action: {
+                    DSSettingsGroupCard(title: localized("阅读与声音")) {
+                        DSSettingsCardRow(icon: "waveform", title: localized("听书引擎")) { showTTSSettings = true }
+                        DSSettingsCardDivider()
+                        DSSettingsCardRow(
+                            icon: "sparkles",
+                            title: localized("智能伴读"),
+                            detail: isAILocked ? localized("需要 Pro") : aiAssistantDetail,
+                            isLocked: isAILocked
+                        ) {
                             if isAILocked { showAIPaywall = true } else { showAISettings = true }
-                        })
-                        DSSettingsCard(icon: "text.magnifyingglass", title: localized("文字修正"), action: { showReplaceRules = true })
+                        }
+                        DSSettingsCardDivider()
+                        DSSettingsCardRow(icon: "text.magnifyingglass", title: localized("文字修正")) { showReplaceRules = true }
                     }
 
                     // ── 应用信息 ──
-                    profileGroup(title: localized("应用信息")) {
-                        DSSettingsCard(icon: "stethoscope", title: localized("帮助与诊断"), action: { showDiagnostics = true })
-                        DSSettingsCard(icon: "info.circle.fill", title: localized("关于书悦"), detail: appVersion, action: { showAbout = true })
+                    DSSettingsGroupCard(title: localized("应用信息")) {
+                        DSSettingsCardNavRow(icon: "stethoscope", title: localized("帮助与诊断")) {
+                            DiagnosticsView()
+                        }
+                        DSSettingsCardDivider()
+                        DSSettingsCardNavRow(
+                            icon: "info.circle.fill",
+                            title: localized("关于书悦"),
+                            value: appVersion
+                        ) {
+                            AboutSupportView(
+                                appVersion: appVersion,
+                                feedbackEmail: feedbackEmail,
+                                feedbackMailURL: feedbackMailURL,
+                                sourceCodeURL: sourceCodeURL
+                            )
+                        }
                     }
                 }
                 .padding(.horizontal, DSSpacing.md)
@@ -125,20 +157,6 @@ struct SettingsView: View {
             .navigationDestination(isPresented: pushedSourceListBinding) {
                 BookSourceListView(embedsNavigationStack: false)
                     .environmentObject(store)
-            }
-            .navigationDestination(isPresented: $showAppearanceTheme) {
-                AppearanceThemeView()
-            }
-            .navigationDestination(isPresented: $showDiagnostics) {
-                DiagnosticsView()
-            }
-            .navigationDestination(isPresented: $showAbout) {
-                AboutSupportView(
-                    appVersion: appVersion,
-                    feedbackEmail: feedbackEmail,
-                    feedbackMailURL: feedbackMailURL,
-                    sourceCodeURL: sourceCodeURL
-                )
             }
             #if DEBUG
             // Screenshot/driver hook: `-open-diagnostics` pushes 診斷與回報 straight
@@ -226,40 +244,6 @@ struct SettingsView: View {
     /// to open the screen to find out that.
     private var aiAssistantDetail: String {
         AIProviderStore.shared.hasConfiguredProfile ? localized("已啟用") : localized("未設定")
-    }
-
-    /// 我的中心的「分组宫格」：小标题 + 两列功能卡片宫格，替代系统 List Section。
-    /// 每组的卡片数量不定，宫格自动换行；footer 用于语言说明等补充文案。
-    private func profileGroup<Content: View>(
-        title: String,
-        footer: String? = nil,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            Text(title)
-                .font(DSFont.subheadline.weight(.semibold))
-                .foregroundStyle(DSColor.textSecondary)
-                .padding(.horizontal, DSSpacing.sm)
-                .padding(.top, DSSpacing.xs)
-
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), spacing: DSSpacing.md),
-                    GridItem(.flexible(), spacing: DSSpacing.md)
-                ],
-                spacing: DSSpacing.md
-            ) {
-                content()
-            }
-
-            if let footer {
-                Text(footer)
-                    .font(DSFont.caption)
-                    .foregroundStyle(DSColor.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, DSSpacing.sm)
-            }
-        }
     }
 }
 

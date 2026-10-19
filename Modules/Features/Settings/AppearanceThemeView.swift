@@ -87,16 +87,20 @@ struct AppearanceThemeView: View {
         // theme's colours, the page behind it, its effects — each a page of its own),
         // and the themes themselves. A theme no longer opens a page of its own. Every
         // row wears `SettingsRowLabel`, as 設定 and 閱讀設定 do.
-        List {
-            visionSection
-            interfaceSection
-            appearanceSection
-            themeManagementSection
+        // 分组卡片：视觉方案 / 界面 / 外观 / 主题库 四张卡片，替代系统 List Section
+        // （2026-10-19）。网格本身保持卡片，行件统一为 DSSettingsGroupCard 节奏。
+        ScrollView {
+            VStack(spacing: DSSpacing.lg) {
+                visionSection
+                interfaceSection
+                appearanceSection
+                themeManagementSection
+            }
+            .padding(.horizontal, DSSpacing.md)
+            .padding(.top, DSSpacing.xs)
+            .padding(.bottom, DSSpacing.xxl * 2)
         }
         .softScrollEdges()
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .contentMargins(.bottom, DSSpacing.xxl * 2, for: .scrollContent)
         .themedAppSurface(for: .settings)
         .navigationTitle(localized("视觉主题"))
         .toolbarTitleDisplayMode(.inline)
@@ -130,42 +134,56 @@ struct AppearanceThemeView: View {
     }
 
     private var visionSection: some View {
-        Section {
+        DSSettingsGroupCard(title: localized("视觉方案")) {
             themeSelectionCard
+                .padding(.horizontal, DSSpacing.md)
+                .padding(.top, DSSpacing.md)
+                .padding(.bottom, DSSpacing.sm)
+
             if !subscriptionStore.hasAccess(.readerThemePacks) {
+                DSSettingsCardDivider()
                 customizationRow
             }
+
+            DSSettingsCardDivider()
             Text(localized("切换偏好"))
                 .font(DSFont.subheadline.weight(.semibold))
                 .foregroundStyle(DSColor.textSecondary)
-                .textCase(nil)
-                .padding(.top, DSSpacing.xs)
+                .padding(.horizontal, DSSpacing.md)
+                .padding(.top, DSSpacing.md)
+                .padding(.bottom, DSSpacing.xs)
                 .accessibilityAddTraits(.isHeader)
-            Toggle(isOn: appearanceFollowsSystemBinding) {
-                SettingsRowLabel(localized("跟随系统"), systemImage: "circle.lefthalf.filled")
-            }
-            Toggle(isOn: $settings.appearanceUsesSeparateDarkTheme) {
-                SettingsRowLabel(localized("单独设置深色主题"), systemImage: "moon")
-            }
-            Toggle(isOn: $settings.appearanceBindReaderTheme) {
-                SettingsRowLabel(localized("绑定阅读主题"), systemImage: "book")
-            }
+            DSSettingsCardToggle(
+                title: localized("跟随系统"),
+                systemImage: "circle.lefthalf.filled",
+                isOn: appearanceFollowsSystemBinding
+            )
+            DSSettingsCardDivider()
+            DSSettingsCardToggle(
+                title: localized("单独设置深色主题"),
+                systemImage: "moon",
+                isOn: $settings.appearanceUsesSeparateDarkTheme
+            )
+            DSSettingsCardDivider()
+            DSSettingsCardToggle(
+                title: localized("绑定阅读主题"),
+                systemImage: "book",
+                isOn: $settings.appearanceBindReaderTheme
+            )
             if settings.appearanceBindReaderTheme {
+                DSSettingsCardDivider()
                 boundReaderThemeRow(titleKey: "浅色阅读主题", systemImage: "sun.max", appearance: .light)
+                DSSettingsCardDivider()
                 boundReaderThemeRow(titleKey: "深色阅读主题", systemImage: "moon.fill", appearance: .dark)
                 Text(localized("阅读器在浅色模式用浅色阅读主题，深色模式用深色阅读主题。要跟着装置的深浅色自动切换，在阅读器的「设置」面板开启「跟随装置深浅色」。"))
                     .dsSectionFooter()
+                    .padding(.top, DSSpacing.sm)
             }
-        } header: {
-            Text(localized("视觉方案"))
-                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             if !subscriptionStore.hasAccess(.readerThemePacks) {
                 Text(localized("自訂應用配色、閱讀配色與頁面背景需開通會員。"))
-                    .dsSectionFooter()
             }
         }
-        .interfaceSectionSurface()
         .animation(reduceMotion ? nil : DSAnimation.standard, value: settings.appearanceBindReaderTheme)
     }
 
@@ -198,70 +216,68 @@ struct AppearanceThemeView: View {
     /// and its covers, the launch screen. 每列欄數 and 預設封面 moved here from 設定's
     /// 書架顯示 (2026-09-29), where the theme they belong to could not be seen.
     private var interfaceSection: some View {
-        Section {
-            NavigationLink {
+        DSSettingsGroupCard(title: localized("界面")) {
+            DSSettingsCardNavRow(icon: "menubar.rectangle", title: localized("阅读器样式")) {
                 AppearanceReaderInterfaceView()
-            } label: {
-                SettingsRowLabel(localized("阅读器样式"), systemImage: "menubar.rectangle")
             }
+            DSSettingsCardDivider()
             // In view without Pro too, locked (2026-09-27).
             rootTabRow
-            Picker(selection: $settings.bookshelfGridColumnCount) {
+            DSSettingsCardDivider()
+            DSSettingsCardPicker(
+                title: localized("书库密度"),
+                systemImage: "square.grid.3x3.fill",
+                selection: $settings.bookshelfGridColumnCount
+            ) {
                 ForEach(GlobalSettings.bookshelfGridColumnCountOptions, id: \.self) { columnCount in
                     Text(String(format: localized("%d 欄"), columnCount))
                         .tag(columnCount)
                 }
-            } label: {
-                SettingsRowLabel(localized("书库密度"), systemImage: "square.grid.3x3.fill")
             }
-            .pickerStyle(.menu)
-            NavigationLink {
+            DSSettingsCardDivider()
+            DSSettingsCardNavRow(icon: "photo.stack.fill", title: localized("默认书封")) {
                 DefaultCoverSettingsView()
-            } label: {
-                SettingsRowLabel(localized("默认书封"), systemImage: "photo.stack.fill")
             }
+            DSSettingsCardDivider()
             launchImageRow
-        } header: {
-            Text(localized("界面"))
-                .foregroundStyle(DSColor.textSecondary)
         }
-        .interfaceSectionSurface()
     }
 
     /// The theme's own look, a page each: its colours and the global font, the page
     /// behind everything, and the interface effects.
     private var appearanceSection: some View {
-        Section {
-            NavigationLink {
+        DSSettingsGroupCard(title: localized("外观")) {
+            DSSettingsCardNavRow(
+                icon: "paintpalette",
+                title: localized("文字与配色"),
+                value: settings.globalFontDisplayName
+            ) {
                 AppearanceColorsAndFontView()
-            } label: {
-                SettingsValueLabel(
-                    title: localized("文字与配色"),
-                    systemImage: "paintpalette",
-                    value: settings.globalFontDisplayName
-                )
             }
+            DSSettingsCardDivider()
             if subscriptionStore.hasAccess(.readerThemePacks) {
-                NavigationLink {
+                DSSettingsCardNavRow(icon: "photo.on.rectangle", title: localized("阅读壁纸")) {
                     AppearancePageBackgroundView()
-                } label: {
-                    SettingsRowLabel(localized("阅读壁纸"), systemImage: "photo.on.rectangle")
                 }
             } else {
-                SettingsLockedRow(title: localized("阅读壁纸"), systemImage: "photo.on.rectangle") {
+                DSSettingsCardRow(
+                    icon: "photo.on.rectangle",
+                    title: localized("阅读壁纸"),
+                    detail: localized("需要 Pro"),
+                    isLocked: true
+                ) {
                     paywallFeature = .readerThemePacks
                 }
             }
-            NavigationLink {
+            DSSettingsCardDivider()
+            DSSettingsCardNavRow(
+                icon: "sparkles",
+                title: localized("动效与质感"),
+                value: interfaceEffectsSummary
+            ) {
                 AppearanceInterfaceEffectsView()
-            } label: {
-                SettingsValueLabel(title: localized("动效与质感"), systemImage: "sparkles", value: interfaceEffectsSummary)
             }
-        } header: {
-            Text(localized("外观"))
-                .foregroundStyle(DSColor.textSecondary)
         }
-        .interfaceSectionSurface()
     }
 
     // Deliberately outside the Pro gate. An appearance pack — ours or a QiReader
@@ -272,16 +288,12 @@ struct AppearanceThemeView: View {
     // The custom theme a pack carries still needs Pro to take effect; `ContentView`'s
     // `resolvedAppTheme` already downgrades it on its own, so nothing here has to.
     private var themeManagementSection: some View {
-        Section {
+        DSSettingsGroupCard(title: localized("主题库")) {
             themeActionRows
-        } header: {
-            Text(localized("主题库"))
-                .foregroundStyle(DSColor.textSecondary)
         } footer: {
             Text(localized("「導出主題」包含所有自訂主題、自帶主題的配色、頁面背景圖、Tab 圖示、啟動圖與閱讀背景。"))
                 .dsSectionFooter()
         }
-        .interfaceSectionSurface()
     }
 
     private var themeSelectionCard: some View {
@@ -371,20 +383,16 @@ struct AppearanceThemeView: View {
     /// Chooses which appearance the grid below is picking a theme for, and flips the
     /// whole app into it so the pick can be judged against the real thing. With 跟隨系統
     /// off that is the app's appearance, kept; with it on, a preview until 設定 is back.
-    /// 深色 shows each theme's dark version, not one black theme.
+    /// 深色 shows each theme's dark version, not one black theme. 浅色／深色 胶囊标签条
+    /// 替代系统分段控件（2026-10-19），与阅读偏好的胶囊条同一套视觉。
     private var themeSlotPicker: some View {
         VStack(alignment: .leading, spacing: DSSpacing.sm) {
-            Picker(
-                localized("主題外觀"),
-                selection: Binding(
-                    get: { editingScheme },
-                    set: { settings.pickAppearanceSlot($0) }
-                )
-            ) {
-                Text(localized("淺色")).tag(ColorScheme.light)
-                Text(localized("深色")).tag(ColorScheme.dark)
+            HStack(spacing: DSSpacing.xs) {
+                themeSlotTab(localized("淺色"), scheme: .light)
+                themeSlotTab(localized("深色"), scheme: .dark)
             }
-            .pickerStyle(.segmented)
+            .padding(4)
+            .background(DSColor.neutralControlFill, in: Capsule())
             .accessibilityLabel(localized("主題外觀"))
 
             Text(localized(
@@ -395,6 +403,25 @@ struct AppearanceThemeView: View {
                 .font(DSFont.caption)
                 .foregroundStyle(DSColor.textSecondary)
         }
+    }
+
+    private func themeSlotTab(_ title: String, scheme: ColorScheme) -> some View {
+        let selected = editingScheme == scheme
+        return Button {
+            withAnimation(DSAnimation.standard) {
+                settings.pickAppearanceSlot(scheme)
+            }
+        } label: {
+            Text(title)
+                .font(DSFont.fixed(size: 13, weight: .medium))
+                .foregroundColor(selected ? DSColor.textOnAccent : DSColor.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background(Capsule().fill(selected ? activeTheme.accentColor : Color.clear))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func themeGroupTitle(_ title: String) -> some View {
@@ -526,15 +553,17 @@ struct AppearanceThemeView: View {
 
     /// One appearance's reading-background pick, shown while 綁定閱讀主題 is on.
     private func boundReaderThemeRow(titleKey: String, systemImage: String, appearance: ColorScheme) -> some View {
-        Picker(selection: Binding(
-            get: { settings.boundReaderTheme(for: appearance) },
-            set: { settings.setBoundReaderTheme($0, for: appearance) }
-        )) {
+        DSSettingsCardPicker(
+            title: localized(titleKey),
+            systemImage: systemImage,
+            selection: Binding(
+                get: { settings.boundReaderTheme(for: appearance) },
+                set: { settings.setBoundReaderTheme($0, for: appearance) }
+            )
+        ) {
             ForEach(settings.boundReaderThemeOptions) { option in
                 Text(settings.title(for: option)).tag(option)
             }
-        } label: {
-            SettingsRowLabel(localized(titleKey), systemImage: systemImage)
         }
     }
 
@@ -558,17 +587,20 @@ struct AppearanceThemeView: View {
     @ViewBuilder
     private var launchImageRow: some View {
         if subscriptionStore.hasAccess(.launchScreen) {
-            NavigationLink {
+            DSSettingsCardNavRow(
+                icon: "iphone",
+                title: localized("开屏画面"),
+                value: localized(settings.launchImageEnabled ? "已開啟" : "已關閉")
+            ) {
                 LaunchImageSettingsView()
-            } label: {
-                SettingsValueLabel(
-                    title: localized("开屏画面"),
-                    systemImage: "iphone",
-                    value: localized(settings.launchImageEnabled ? "已開啟" : "已關閉")
-                )
             }
         } else {
-            SettingsLockedRow(title: localized("开屏画面"), systemImage: "iphone") {
+            DSSettingsCardRow(
+                icon: "iphone",
+                title: localized("开屏画面"),
+                detail: localized("需要 Pro"),
+                isLocked: true
+            ) {
                 paywallFeature = .launchScreen
             }
         }
@@ -577,13 +609,16 @@ struct AppearanceThemeView: View {
     @ViewBuilder
     private var rootTabRow: some View {
         if ReaderPremiumVisibilityPolicy(isProActive: subscriptionStore.isProActive).showsBottomTabCustomization {
-            NavigationLink {
+            DSSettingsCardNavRow(icon: "square.grid.2x2", title: localized("导航栏")) {
                 RootTabCustomizationView()
-            } label: {
-                SettingsRowLabel(localized("导航栏"), systemImage: "square.grid.2x2")
             }
         } else {
-            SettingsLockedRow(title: localized("导航栏"), systemImage: "square.grid.2x2") {
+            DSSettingsCardRow(
+                icon: "square.grid.2x2",
+                title: localized("导航栏"),
+                detail: localized("需要 Pro"),
+                isLocked: true
+            ) {
                 paywallFeature = .bottomBarCustomization
             }
         }
@@ -602,6 +637,8 @@ struct AppearanceThemeView: View {
         ) {
             SettingsRowLabel(localized("导出方案"), systemImage: "square.and.arrow.up", role: .action)
         }
+        .themeActionFrame()
+        .buttonStyle(.plain)
         // 刪除主題's confirmation, on a row that is always there: the 刪除主題 row goes
         // with the theme, and an alert torn down by its own action can be left
         // half-dismissed.
@@ -621,11 +658,15 @@ struct AppearanceThemeView: View {
             Text(localized("刪除後，使用此主題的外觀會回到預設。"))
         }
 
+        DSSettingsCardDivider()
+
         Button {
             showThemeImporter = true
         } label: {
             SettingsRowLabel(localized("导入方案"), systemImage: "square.and.arrow.down", role: .action)
         }
+        .themeActionFrame()
+        .buttonStyle(.plain)
         .fileImporter(
             isPresented: $showThemeImporter,
             allowedContentTypes: [
@@ -638,22 +679,28 @@ struct AppearanceThemeView: View {
         )
 
         if let custom = selectedCustomTheme {
+            DSSettingsCardDivider()
             Button(role: .destructive) {
                 deleteTarget = AppearanceThemePreset.preset(from: custom)
             } label: {
                 SettingsRowLabel(localized("刪除主題"), systemImage: "trash", role: .destructive)
             }
+            .themeActionFrame()
+            .buttonStyle(.plain)
         }
 
         // A built-in theme's only: it has a default look to go back to. A theme of the
         // user's own — an imported pack included — is its own look, and is renamed or
         // deleted instead (2026-09-29).
         if selectedCustomTheme == nil {
+            DSSettingsCardDivider()
             Button(role: .destructive) {
                 showResetAppearanceConfirm = true
             } label: {
                 SettingsRowLabel(localized("恢复默认"), systemImage: "arrow.counterclockwise", role: .destructive)
             }
+            .themeActionFrame()
+            .buttonStyle(.plain)
             .alert(localized("恢复默认？"), isPresented: $showResetAppearanceConfirm) {
                 Button(localized("恢复默认"), role: .destructive) {
                     settings.resetAppearanceToDefault()
@@ -759,12 +806,29 @@ struct AppearanceThemeView: View {
                     .font(DSFont.body)
                     .foregroundStyle(DSColor.textPrimary)
                 Spacer(minLength: 0)
+                Text(localized("需要 Pro"))
+                    .font(DSFont.caption)
+                    .foregroundStyle(DSColor.textSecondary)
                 Image(systemName: "lock.fill")
+                    .font(DSFont.caption)
                     .foregroundStyle(DSColor.textSecondary)
                     .accessibilityHidden(true)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+        .padding(.horizontal, DSSpacing.md)
+    }
+}
+
+/// 主题库动作行的行高与点击区：与卡片内其它行同一节奏（54pt 高、水平 12pt 边距）。
+private extension View {
+    func themeActionFrame() -> some View {
+        self
+            .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+            .padding(.horizontal, DSSpacing.md)
+            .contentShape(Rectangle())
     }
 }
 
